@@ -39,13 +39,21 @@
 
 #define SAMPLEINTERVAL 300000 //300000 // In milliseconds (5 minutes.)
 
+#define NUMZ  7 // Nr of zoom levels
+// Zoom 64x   600.000s    6 samples/hr
+// Zoom 32x   300.000s   12 samples/hr
+// Zoom 16x   150.000s   24 samples/hr
+// Zoom  8x    75.000s   48 samples/hr
+// Zoom  4x    37.500s   96 samples/hr
+// Zoom  2x    18.750s  192 samples/hr
+// Zoom  1x     9.375s  384 samples/hr
+
+static int curz=3;  // current zoom level: 8x
+
 #define OLEDADDR0 0x3c
 #define OLEDADDR1 0x3d
 
 #define SWITCHPIN 12
-
-
-
 
 Adafruit_MPL3115A2 baro;
 
@@ -56,15 +64,22 @@ static char status_lines[2][11];
 static uint8_t status_line_dirty[2];
 static uint8_t graph_row_dirty[2][6];
 
+static const int32_t periods[NUMZ] =
+{
+  600000,300000,150000,75000,37500,18750,9375,
+};
+static const uint16_t samples_per_hr[NUMZ] =
+{
+  6,12,24,48,96,192,384,
+};
 
-static int32_t  sample_delay = SAMPLEINTERVAL;
 static uint32_t last_time_stamp  = 0;
-static uint16_t num_measurements = 0;
-static uint32_t sum_measurements = 0;
 
-static uint8_t datalog_lo[256];
-static uint8_t datalog_hi[256];
-static uint8_t logidx=0;
+static uint8_t datalog_lo[NUMZ][256];
+static uint8_t datalog_hi[NUMZ][256];
+static uint8_t logidx[NUMZ];
+static int32_t sample_delay[NUMZ];
+static int16_t num_measurements[NUMZ];
 
 
 #include "oled.h"
@@ -74,7 +89,7 @@ static void setupSerial(void)
 {
   //Initialize serial and wait for port to open:
   Serial.begin(115200);
-  for (int i=0; i<18 && !Serial; ++i)
+  for (int i=0; i<20 && !Serial; ++i)
      delay(100);
   Serial.println(BOARDNAME " is now ready.");
 }
@@ -172,7 +187,7 @@ static uint8_t update_graph(void)
     {
       graph_row_dirty[dpy][i] = 0;
       // Writes a row of 8 pixels.
-      oled_write_strip(OLEDADDR0+dpy, 7-i, logidx+dpy*128, i*8, datalog_lo, datalog_hi, dpy==0);
+      oled_write_strip(OLEDADDR0+dpy, 7-i, logidx[curz]+dpy*128, i*8, datalog_lo[curz], datalog_hi[curz], dpy==0);
       dpy = (dpy+1)&1;
       return 1;
     }
@@ -197,16 +212,6 @@ static uint8_t update_status_lines(void)
   return 0;
 }
 
-
-static void write_datalog(void)
-{
-  // Write 6 lines of 8 pixels each, to the displays.
-  for ( int i=0; i<6; ++i )
-  {
-    oled_write_strip(OLEDADDR0, 7-i, logidx+  0, i*8, datalog_lo, datalog_hi, 1 );
-    oled_write_strip(OLEDADDR1, 7-i, logidx+128, i*8, datalog_lo, datalog_hi, 0 );
-  }
-}
 
 #if 0
 static void calib(void)
@@ -281,11 +286,11 @@ void setup()
   oled_set_contrast( OLEDADDR1, 0x60 );
 
   memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
-  //write_datalog();
+
+  for ( int z=0; z<NUMZ; ++z )
+    sample_delay[z] = periods[z];
 
   last_time_stamp = millis();
-  num_measurements = 0;
-  sum_measurements = 0;
 }
 
 
@@ -350,31 +355,33 @@ void loop()
     elapsed = current_time_stamp - last_time_stamp;
   }
   last_time_stamp = current_time_stamp;
-  sample_delay -= elapsed;
 
-  if ( sample_delay <= 0 )
+  for ( int z=0; z<NUMZ; ++z )
+    sample_delay[z] -= elapsed;
+
+  for ( int z=0; z<NUMZ; ++z )
   {
-    if (num_measurements==0)
-      Serial.print("ERROR: num_measurements is 0?");
-    const uint16_t avg = num_measurements ? sum_measurements / num_measurements : 0;
-    Serial.print("Interval: "); Serial.print(logidx);
-    Serial.print(" sample_delay: "); Serial.print(sample_delay);
-    Serial.print(" elapsed: "); Serial.print(elapsed);
-    Serial.print(" count: "); Serial.print(num_measurements);
-    Serial.print(" average: "); Serial.print(avg); Serial.println(" ppm");
-    sample_delay += SAMPLEINTERVAL;
-    num_measurements = 0;
-    sum_measurements = 0;
-    logidx += 1;
-    memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
-    //write_datalog();
+    if ( sample_delay[z] <= 0 )
+    {
+      sample_delay[z] += periods[z];
+      logidx[z] += 1;
+      num_measurements[z] = 0;
+      if ( curz == z )
+        memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
+    }
   }
 
   uint8_t idle=1;
   const int8_t delta = knob_update(0);
-  if ( delta )
+  if ( delta==1 && curz < NUMZ-1 )
   {
-    Serial.println(delta);
+    curz++;
+    memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
+  }
+  if ( delta==-1 && curz > 0 )
+  {
+    curz--;
+    memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
   }
 
   // Update the amount of time that knobs have been idle.
@@ -444,10 +451,12 @@ void loop()
       int16_t v = co2 < 400 ? 0 : (co2 - 400) / 32;
       v = v > 47 ? 47 : v;
       const uint8_t s = (uint8_t)v;
-      datalog_lo[logidx] = s < datalog_lo[logidx] || !num_measurements ? s : datalog_lo[logidx];
-      datalog_hi[logidx] = s > datalog_hi[logidx] || !num_measurements ? s : datalog_hi[logidx];
-      num_measurements += 1;
-      sum_measurements += co2; 
+      for ( int z=0; z<NUMZ; ++z )
+      {
+        datalog_lo[z][logidx[z]] = s < datalog_lo[z][logidx[z]] || !num_measurements[z] ? s : datalog_lo[z][logidx[z]];
+        datalog_hi[z][logidx[z]] = s > datalog_hi[z][logidx[z]] || !num_measurements[z] ? s : datalog_hi[z][logidx[z]];
+        num_measurements[z] += 1;
+      }
     }
   }
 
