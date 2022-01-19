@@ -11,13 +11,13 @@
 # define ENCSW 6
 #elif defined(ARDUINO_TRINKET_M0)
 # define BOARDNAME "Trinket M0"
-#elif defined(ARDUINO_ESP32C3_DEV)
+#elif defined(ARDUINO_ESP32C3_DEV) || defined(ESP_PLATFORM)
 # define BOARDNAME "ESP32C3"
 # define I2CSDA 0
 # define I2CSCL 1
-# define PINLEDR 2
-# define PINLEDY 3
-# define PINLEDG 4
+# define PINLEDR 7
+# define PINLEDY 8
+# define PINLEDG 10
 # define ENCA 4
 # define ENCB 5
 # define ENCSW 6
@@ -187,7 +187,17 @@ static uint8_t update_graph(void)
     {
       graph_row_dirty[dpy][i] = 0;
       // Writes a row of 8 pixels.
-      oled_write_strip(OLEDADDR0+dpy, 7-i, logidx[curz]+dpy*128, i*8, datalog_lo[curz], datalog_hi[curz], dpy==0);
+      oled_write_strip
+      (
+        OLEDADDR0+dpy,
+        7-i,
+        logidx[curz]+dpy*128,
+        i*8,
+        datalog_lo[curz],
+        datalog_hi[curz],
+        samples_per_hr[curz],
+        dpy==0
+      );
       dpy = (dpy+1)&1;
       return 1;
     }
@@ -250,6 +260,9 @@ void setup()
   digitalWrite( PINLEDR, 0 );
   digitalWrite( PINLEDY, 0 );
   digitalWrite( PINLEDG, 0 );
+
+  // Wait 20ms before we do anything: I suspect the SCD41 needs a little time?
+  delay(20);
 
   // Join the i2c bus as a master.
   Wire.begin(I2CSDA, I2CSCL);

@@ -221,17 +221,7 @@ void oled_pattern(int devaddr, uint8_t pat, int16_t shift)
 }
 
 
-void oled_write_strip
-(
-  uint8_t devaddr,
-  uint8_t row,
-  uint8_t logoff,
-  uint8_t valoff,
-  const uint8_t* lo,
-  const uint8_t* hi,
-  uint16_t divisionlen,
-  uint8_t labeled
-)
+void oled_write_strip(uint8_t devaddr, uint8_t row, uint8_t logoff, uint8_t valoff, const uint8_t* lo, const uint8_t* hi, uint8_t labeled )
 {
   Wire.beginTransmission(devaddr);
   Wire.write(OLED_CONTROL_BYTE_CMD_STREAM);
@@ -252,7 +242,7 @@ void oled_write_strip
     }
     uint8_t b = 0;
     uint8_t idx = (logoff+c) & 0xff;
-    if ( (logoff + c) % divisionlen == 0 )
+    if ( (logoff + c) % 12 == 0 )
       b |= 0x44;
     for ( int j=0; j<8; ++j )
     {
