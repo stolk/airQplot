@@ -10,7 +10,6 @@ static uint8_t encHist2 [NUMENC]; // two last values.
 static uint8_t encHist4 [NUMENC]; // four last values.
 
 
-
 void knob_setup
 (
   uint8_t nr,
@@ -59,3 +58,8 @@ int8_t knob_update(uint8_t nr)
   return delta;
 }
 
+
+uint8_t knob_switch_value(uint8_t nr)
+{
+  return digitalRead(encSwtPin[nr]);
+}

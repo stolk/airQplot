@@ -37,8 +37,6 @@
 #include <SensirionI2CScd4x.h>
 
 
-#define SAMPLEINTERVAL 300000 //300000 // In milliseconds (5 minutes.)
-
 #define NUMZ  7 // Nr of zoom levels
 // Zoom 64x   600.000s    6 samples/hr
 // Zoom 32x   300.000s   12 samples/hr
@@ -80,6 +78,12 @@ static uint8_t datalog_hi[NUMZ][256];
 static uint8_t logidx[NUMZ];
 static int32_t sample_delay[NUMZ];
 static int16_t num_measurements[NUMZ];
+
+static uint8_t knob_state;
+static uint32_t knob_ms_held;
+static uint8_t knob_primed;
+
+static int32_t notification_time;
 
 
 #include "oled.h"
@@ -161,6 +165,14 @@ static void scan(void)
 }
 
 
+static void set_leds(uint8_t r, uint8_t y, uint8_t g )
+{
+  digitalWrite(PINLEDR,!r);
+  digitalWrite(PINLEDY,!y);
+  digitalWrite(PINLEDG,!g);
+}
+
+
 static uint16_t updateBarometer(void)
 {
   static uint16_t pre = 0;
@@ -171,7 +183,7 @@ static uint16_t updateBarometer(void)
   if ( !phase )
   {
     pre = (uint16_t) (pressure+0.5f);
-    // The CO2 measurement is more accurate if we provice ambient pressure data.
+    // The CO2 measurement is more accurate if we provide ambient pressure data.
     correctForAmbientPressure(pre);
   }
   return pre;
@@ -223,7 +235,6 @@ static uint8_t update_status_lines(void)
 }
 
 
-#if 0
 static void calib(void)
 {
   uint16_t err = cdos.stopPeriodicMeasurement();
@@ -241,7 +252,6 @@ static void calib(void)
   err = cdos.startPeriodicMeasurement();
   assert(!err);  
 }
-#endif
 
 
 void setup()
@@ -257,9 +267,7 @@ void setup()
   pinMode( PINLEDR, OUTPUT );
   pinMode( PINLEDY, OUTPUT );
   pinMode( PINLEDG, OUTPUT );
-  digitalWrite( PINLEDR, 0 );
-  digitalWrite( PINLEDY, 0 );
-  digitalWrite( PINLEDG, 0 );
+  set_leds(1,1,1);
 
   // Wait 20ms before we do anything: I suspect the SCD41 needs a little time?
   delay(20);
@@ -361,7 +369,7 @@ void loop()
   if ( current_time_stamp < last_time_stamp )
   {
     Serial.println("Timestamp has wrapped around.");
-    elapsed = SAMPLEINTERVAL/2; // wrapped around (in 51 days.)
+    elapsed = 0; // wrapped around (in 51 days.)
   }
   else
   {
@@ -395,6 +403,41 @@ void loop()
   {
     curz--;
     memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
+  }
+  uint8_t s = knob_switch_value(0);
+  if ( s != knob_state )
+  {
+    knob_ms_held = 0;
+    knob_state = s;
+    knob_primed = 1;
+  }
+  else
+  {
+    knob_ms_held += elapsed;
+  }
+  if ( knob_state==0 && knob_ms_held > 1500 && knob_primed )
+  {
+    knob_primed = 0;
+    calib();
+    notification_time = 3000;
+    strcpy(status_lines[0], "CALIBRATE " );
+    strcpy(status_lines[1], "COMPLETE  " );
+    status_line_dirty[0] = 0xff;
+    status_line_dirty[1] = 0xff;
+  }
+  if ( notification_time > 0 )
+  {
+    notification_time -= elapsed;
+    uint8_t lnr = (notification_time>>6) & 0x3;
+    set_leds( lnr==0, lnr==1, lnr==2 );
+    if ( notification_time <= 0 )
+    {
+      strcpy(status_lines[0], "          " );
+      strcpy(status_lines[1], "          " );
+      status_line_dirty[0] = 0xff;
+      status_line_dirty[1] = 0xff;
+      set_leds(0,0,0);
+    }
   }
 
   // Update the amount of time that knobs have been idle.
@@ -458,8 +501,9 @@ void loop()
       Serial.print("  humidity:");
       Serial.print(humidity);
       Serial.print("\n");
-      
-      update_status( pre, co2 );
+
+      if ( notification_time <= 0 )
+        update_status( pre, co2 );
       
       int16_t v = co2 < 400 ? 0 : (co2 - 400) / 32;
       v = v > 47 ? 47 : v;

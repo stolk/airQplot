@@ -12,3 +12,4 @@ extern void knob_setup
 // Returns the delta to the encoder value. (-1, 0, 1)
 extern int8_t  knob_update(uint8_t nr);
 
+extern uint8_t knob_switch_value(uint8_t nr);
