@@ -51,12 +51,9 @@ static int curz=3;  // current zoom level: 8x
 #define OLEDADDR0 0x3c
 #define OLEDADDR1 0x3d
 
-#define SWITCHPIN 12
+static Adafruit_MPL3115A2 baro;
 
-Adafruit_MPL3115A2 baro;
-
-SensirionI2CScd4x cdos;
-
+static SensirionI2CScd4x cdos;
 
 static char status_lines[2][11];
 static uint8_t status_line_dirty[2];
@@ -124,10 +121,8 @@ static void setupCO2Sensor(void)
   assert(!err);
 #endif
 
-#if 1
   err = cdos.setAutomaticSelfCalibration(0);
   assert(!err);
-#endif
 
   err = cdos.startPeriodicMeasurement();
   assert(!err);
@@ -267,7 +262,7 @@ void setup()
   pinMode( PINLEDR, OUTPUT );
   pinMode( PINLEDY, OUTPUT );
   pinMode( PINLEDG, OUTPUT );
-  set_leds(1,1,1);
+  set_leds(0,0,0);
 
   // Wait 20ms before we do anything: I suspect the SCD41 needs a little time?
   delay(20);
@@ -355,13 +350,6 @@ static void update_status(uint16_t pre, uint16_t co2)
 }
 
 
-static int8_t lastv[6] = {-1,-1,-1,-1,-1,-1};
-
-static uint16_t idlecountlo=0;
-static uint16_t idlecounthi=0;
-
-
-
 void loop()
 {
   const uint32_t current_time_stamp = millis();
@@ -392,7 +380,6 @@ void loop()
     }
   }
 
-  uint8_t idle=1;
   const int8_t delta = knob_update(0);
   if ( delta==1 && curz < NUMZ-1 )
   {
@@ -439,42 +426,6 @@ void loop()
       set_leds(0,0,0);
     }
   }
-
-  // Update the amount of time that knobs have been idle.
-  if (idle && idlecounthi<0xffff)
-  {
-    idlecountlo++;
-    if (idlecountlo==0)
-      idlecounthi++;
-  }
-
-  // If we have been idle a bit, we could update the display, but just one row.
-  if (idlecountlo > 240 || idlecounthi > 0)
-  {
-  }
-
-#if 0
-  static uint8_t sleepmode = 0;
-  // Check if the display needs to be dimmed.
-  uint8_t newmode = 0;
-  if ( idlecounthi > 0 )
-    newmode = 1;
-
-  if ( newmode != sleepmode )
-  {
-    if ( newmode == 1 && sleepmode == 0 )
-    {
-      oled_set_contrast( OLEDADDR0, 0x30 );
-      oled_set_contrast( OLEDADDR1, 0x30 );
-    } 
-    if ( newmode == 0 && sleepmode == 1 )
-    {
-      oled_set_contrast( OLEDADDR0, 0x50 );
-      oled_set_contrast( OLEDADDR1, 0x50 );
-    }
-    sleepmode = newmode;
-  }
-#endif
   
   // Get the barometric pressure.
   const uint16_t pre = updateBarometer();
@@ -504,6 +455,13 @@ void loop()
 
       if ( notification_time <= 0 )
         update_status( pre, co2 );
+
+      if ( co2 < 600 )
+        set_leds(0,0,1);
+      else if ( co2 < 800 )
+        set_leds(0,1,0);
+      else
+        set_leds(1,0,0);
       
       int16_t v = co2 < 400 ? 0 : (co2 - 400) / 32;
       v = v > 47 ? 47 : v;
