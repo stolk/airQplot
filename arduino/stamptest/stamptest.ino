@@ -5,24 +5,46 @@
 # define BOARDNAME "Arduino Pro Micro"
 #elif defined(ARDUINO_TRINKET_M0)
 # define BOARDNAME "Trinket M0"
-#elif defined(ARDUINO_ESP32C3_DEV) || defined(ESP_PLATFORM)
+#elif defined(ARDUINO_ESP32C3_DEV)
 # define BOARDNAME "ESP32C3"
+# define I2CSDA 18
+# define I2CSCL 19
+#elif defined(ESP_PLATFORM)
+# define BOARDNAME "STAMP-C3"
 # define I2CSDA 0
 # define I2CSCL 1
 #else
 # error "Unknown platform."
 #endif
 
+#if defined(ARDUINO_ESP32C3_DEV)
+# define OLED_CS     10
+# define OLED_DC      1
+# define OLED_RESET   0
+#elif defined(ARDUINO_AVR_MICRO)
+# define OLED_CS     20
+# define OLED_DC     19
+# define OLED_RESET  18
+#endif
+
 #define __ASSERT_USE_STDERR
 #include <assert.h>
 
+#include <SPI.h>
 #include <Wire.h>
+
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
 #include "oled.h"
 
 
 #define OLEDADDR0 0x3c
 #define OLEDADDR1 0x3d
+
+const uint32_t bitrate = 1000000;
+static Adafruit_SSD1306 display(128, 64, &SPI, OLED_DC, OLED_RESET, OLED_CS, bitrate);
+
 
 static char status_lines[2][11];
 static uint8_t status_line_dirty[2];
@@ -101,18 +123,40 @@ void setup()
 
   oled_setup(OLEDADDR0);
   oled_pattern(OLEDADDR0, 0x0, 0 );
-  oled_write_row(OLEDADDR0, 0, 0, "GSAS Inc  ", 0x0);
-  oled_write_row(OLEDADDR0, 1, 0, "GSAS Inc  ", 0x0);
+  oled_write_row(OLEDADDR0, 0, 0, "(C)2022   ", 0x0);
+  oled_write_row(OLEDADDR0, 1, 0, "(C)2022   ", 0x0);
+  oled_write_row(OLEDADDR0, 2, 0, "GSAS Inc. ", 0x0);
+  oled_write_row(OLEDADDR0, 3, 0, "GSAS Inc. ", 0x0);
+  oled_write_row(OLEDADDR0, 4, 0, "Monitor 1 ", 0x0);
+  oled_write_row(OLEDADDR0, 5, 0, "Monitor 1 ", 0x0);
 
-#if 0
   oled_setup(OLEDADDR1);
   oled_pattern(OLEDADDR1, 0x0, 0 );
-  oled_write_row(OLEDADDR1, 0, 0, "(c)2022   ", 0x0);
-  oled_write_row(OLEDADDR1, 1, 0, "(c)2022   ", 0x0);
-#endif
+  oled_write_row(OLEDADDR1, 0, 0, "(C)2022   ", 0x0);
+  oled_write_row(OLEDADDR1, 1, 0, "(C)2022   ", 0x0);
+  oled_write_row(OLEDADDR1, 2, 0, "GSAS Inc. ", 0x0);
+  oled_write_row(OLEDADDR1, 3, 0, "GSAS Inc. ", 0x0);
+  oled_write_row(OLEDADDR1, 4, 0, "Monitor 2 ", 0x0);
+  oled_write_row(OLEDADDR1, 5, 0, "Monitor 2 ", 0x0);
 
   oled_set_contrast( OLEDADDR0, 0x60 );
-  //oled_set_contrast( OLEDADDR1, 0x60 );
+  oled_set_contrast( OLEDADDR1, 0x60 );
+
+  // Setup spi display
+  if (!display.begin(SSD1306_EXTERNALVCC))
+  {
+    Serial.println(F("SSD1306 allocation failed"));
+  }
+  else
+  {
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.setCursor(0,0);
+    display.println(F("(C)2022 GSAS Inc."));
+    display.println(F("Monitor 0"));
+    display.display();
+  }
 
   //status_line_dirty[0] = 0xff;
   //status_line_dirty[1] = 0xff; 

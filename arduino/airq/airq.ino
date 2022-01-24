@@ -463,7 +463,7 @@ void loop()
       else
         set_leds(1,0,0);
       
-      int16_t v = co2 < 400 ? 0 : (co2 - 400) / 32;
+      int16_t v = co2 < 400 ? 0 : (co2 - 400) / 22;
       v = v > 47 ? 47 : v;
       const uint8_t s = (uint8_t)v;
       for ( int z=0; z<NUMZ; ++z )
