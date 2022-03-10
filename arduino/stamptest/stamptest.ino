@@ -36,8 +36,10 @@
 
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <Adafruit_SH110X.h>
 
 #undef DOINA3221
+#define DOSH1106
 
 #if defined(DOINA3221)
 # include "Beastdevices_INA3221.h"
@@ -50,8 +52,13 @@
 #define OLEDADDR1 0x3d
 
 const uint32_t bitrate = 2000000;
+#if defined(DOSH1106)
+static Adafruit_SH1106G dpy0(128, 64, &SPI, OLED_DC, OLED_RESET, OLED_CS0, bitrate);
+static Adafruit_SH1106G dpy1(128, 64, &SPI, OLED_DC, OLED_RESET, OLED_CS1, bitrate);
+#else
 static Adafruit_SSD1306 dpy0(128, 64, &SPI, OLED_DC, OLED_RESET, OLED_CS0, bitrate);
 static Adafruit_SSD1306 dpy1(128, 64, &SPI, OLED_DC, OLED_RESET, OLED_CS1, bitrate);
+#endif
 
 #if defined(DOINA3221)
 static Beastdevices_INA3221 ina3221(INA3221_ADDR40_GND);
@@ -180,8 +187,13 @@ void setup()
   oled_set_contrast( OLEDADDR0, 0x60 );
   oled_set_contrast( OLEDADDR1, 0x60 );
 
-  const int ir0 = dpy0.begin(SSD1306_EXTERNALVCC);
+#if defined(DOSH1106)
+  const int ir0 = dpy0.begin(0,true);
+  const int ir1 = dpy1.begin(0,true);
+#else
+  const int ir0 = dpy0.begin(SSD1306_EXTERNALVCC); // SSD1306_SWITCHCAPVCC
   const int ir1 = dpy1.begin(SSD1306_EXTERNALVCC);
+#endif
 
 
   // Setup spi display
@@ -192,9 +204,10 @@ void setup()
   else
   {
     dpy0.clearDisplay();
-    dpy0.setTextSize(1);
+    dpy0.setTextSize(2);
     dpy0.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
     dpy0.setCursor(0, 0);
+    #if 0
     dpy0.println(F("(C)2022 GSAS Inc."));
     dpy0.println(F("Monitor 0"));
     dpy0.println(F("The quick brown"));
@@ -203,6 +216,7 @@ void setup()
     dpy0.println(F("0123456789ABCDEFGHIJK"));
     dpy0.println(F("!@#$%^&*()"));
     dpy0.print  (F("last line."));
+    #endif
     dpy0.display();
   }
 
@@ -214,17 +228,10 @@ void setup()
   else
   {
     dpy1.clearDisplay();
-    dpy1.setTextSize(1);
+    dpy1.setTextSize(2);
     dpy1.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-    dpy1.setCursor(0, 0);
-    dpy1.println(F("(C)2022 GSAS Inc."));
-    dpy1.println(F("Monitor 1"));
-    dpy1.println(F("The quick brown"));
-    dpy1.println(F("fox jumps over a"));
-    dpy1.println(F("lazy dog."));
-    dpy1.println(F("0123456789ABCDEFGHIJK"));
-    dpy1.println(F("!@#$%^&*()"));
-    dpy1.print  (F("last line."));
+    dpy1.setCursor(2, 20);
+    //dpy1.print(F("123 456"));
     dpy1.display();
   }
 
@@ -249,6 +256,76 @@ void loop()
     elapsed = current_time_stamp - last_time_stamp;
   }
   last_time_stamp = current_time_stamp;
+
+  
+#if 1
+  static uint64_t counter = 0;
+  counter += rand() & 0xffff;
+  counter += 0xffff;
+  counter++;
+  uint8_t d[12];
+  uint64_t v = counter;
+  for ( int i=0; i<12; ++i )
+  {
+    d[i] = v % 10ULL;
+    v = v / 10;
+  }
+  uint8_t line0[8];
+  line0[7]=0;
+  line0[6]='0'+d[0];
+  line0[5]='0'+d[1];
+  line0[4]='0'+d[2];
+  line0[3]=' ';
+  line0[2]='0'+d[3];
+  line0[1]='0'+d[4];
+  line0[0]='0'+d[5];
+  uint8_t line1[8];
+  line1[7]=0;
+  line1[6]='0'+d[6];
+  line1[5]='0'+d[7];
+  line1[4]='0'+d[8];
+  line1[3]=' ';
+  line1[2]='0'+d[9];
+  line1[1]='0'+d[10];
+  line1[0]='0'+d[11];
+  dpy0.setCursor(2, 20);
+  dpy0.print(F(line0));
+  dpy0.display();
+  dpy1.setCursor(2, 20);
+  dpy1.print(F(line1));
+  dpy1.display();
+#else
+  static int8_t digits[8] = { '0','0','0', ' ', '0', '0', '0', 0 };
+  if ( ++digits[6] > '9' )
+  {
+    digits[6] = '0';
+    if ( ++digits[5] > '9' )
+    {
+      digits[5] = '0';
+      if ( ++digits[4] > '9' )
+      {
+        digits[4] = '0';
+        if ( ++digits[2] > '9' )
+        {
+          digits[2] = '0';
+          if ( ++digits[1] > '9' )
+          {
+            digits[1] = '0';
+            if ( ++digits[0] > '9' )
+            {
+              digits[0] = '0';
+            }
+          }
+        }
+      }
+    }
+  }
+    
+  dpy0.setCursor(2, 20);
+  dpy0.print(F(digits));
+  dpy0.display();
+#endif
+
 }
 
 
