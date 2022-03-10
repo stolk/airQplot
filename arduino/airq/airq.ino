@@ -25,6 +25,9 @@
 # error "Unknown platform."
 #endif
 
+#define THRESHOLD_LO  700
+#define THRESHOLD_HI  1000
+
 #define __ASSERT_USE_STDERR
 #include <assert.h>
 
@@ -456,9 +459,9 @@ void loop()
       if ( notification_time <= 0 )
         update_status( pre, co2 );
 
-      if ( co2 < 600 )
+      if ( co2 < THRESHOLD_LO )
         set_leds(0,0,1);
-      else if ( co2 < 800 )
+      else if ( co2 < THRESHOLD_HI )
         set_leds(0,1,0);
       else
         set_leds(1,0,0);
