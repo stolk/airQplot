@@ -20,6 +20,7 @@
 #if defined(ARDUINO_ESP32C3_DEV)
 # define OLED_CS0    10
 # define OLED_CS1     3
+# define OLED_CS2     2
 # define OLED_DC      1
 # define OLED_RESET   -1
 #elif defined(ARDUINO_AVR_MICRO)
@@ -35,14 +36,21 @@
 #include <Wire.h>
 
 #include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-#include <Adafruit_SH110X.h>
 
 #undef DOINA3221
+#undef DOSSD1306
 #define DOSH1106
 
 #if defined(DOINA3221)
 # include "Beastdevices_INA3221.h"
+#endif
+
+#if defined(DOSSD1306)
+# include <Adafruit_SSD1306.h>
+#endif
+
+#if defined(DOSH1106)
+# include <Adafruit_SH110X.h>
 #endif
 
 #include "oled.h"
@@ -55,9 +63,13 @@ const uint32_t bitrate = 2000000;
 #if defined(DOSH1106)
 static Adafruit_SH1106G dpy0(128, 64, &SPI, OLED_DC, OLED_RESET, OLED_CS0, bitrate);
 static Adafruit_SH1106G dpy1(128, 64, &SPI, OLED_DC, OLED_RESET, OLED_CS1, bitrate);
-#else
+static Adafruit_SH1106G dpy2(128, 64, &SPI, OLED_DC, OLED_RESET, OLED_CS2, bitrate);
+#endif
+
+#if defined(DOSSD1306)
 static Adafruit_SSD1306 dpy0(128, 64, &SPI, OLED_DC, OLED_RESET, OLED_CS0, bitrate);
 static Adafruit_SSD1306 dpy1(128, 64, &SPI, OLED_DC, OLED_RESET, OLED_CS1, bitrate);
+static Adafruit_SSD1306 dpy1(128, 64, &SPI, OLED_DC, OLED_RESET, OLED_CS2, bitrate);
 #endif
 
 #if defined(DOINA3221)
@@ -145,6 +157,9 @@ void setup()
   pinMode( LED_BUILTIN_RX, INPUT);
 #endif
 
+  Serial.print("RAND_MAX:");
+  Serial.println(RAND_MAX);
+
   // Join the i2c bus as a master.
   Wire.begin(I2CSDA, I2CSCL);
 
@@ -163,9 +178,9 @@ void setup()
   printCurrentForChannel(INA3221_CH1);
   printCurrentForChannel(INA3221_CH2);
   printCurrentForChannel(INA3221_CH3);
-
 #endif
 
+#if defined(DOSSD1306)
   oled_setup(OLEDADDR0);
   oled_pattern(OLEDADDR0, 0x0, 0 );
   oled_write_row(OLEDADDR0, 0, 0, "(C)2022   ", 0x0);
@@ -186,57 +201,58 @@ void setup()
 
   oled_set_contrast( OLEDADDR0, 0x60 );
   oled_set_contrast( OLEDADDR1, 0x60 );
+#endif
+  
 
 #if defined(DOSH1106)
   const int ir0 = dpy0.begin(0,true);
   const int ir1 = dpy1.begin(0,true);
+  const int ir2 = dpy2.begin(0,true);
 #else
   const int ir0 = dpy0.begin(SSD1306_EXTERNALVCC); // SSD1306_SWITCHCAPVCC
   const int ir1 = dpy1.begin(SSD1306_EXTERNALVCC);
+  const int ir2 = dpy2.begin(SSD1306_EXTERNALVCC);
 #endif
 
 
   // Setup spi display
   if (!ir0)
   {
-    Serial.println(F("SSD1306 allocation failed"));
+    Serial.println(F("dpy0.begin() failed"));
   }
   else
   {
     dpy0.clearDisplay();
     dpy0.setTextSize(2);
-    dpy0.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-    dpy0.setCursor(0, 0);
-    #if 0
-    dpy0.println(F("(C)2022 GSAS Inc."));
-    dpy0.println(F("Monitor 0"));
-    dpy0.println(F("The quick brown"));
-    dpy0.println(F("fox jumps over a"));
-    dpy0.println(F("lazy dog."));
-    dpy0.println(F("0123456789ABCDEFGHIJK"));
-    dpy0.println(F("!@#$%^&*()"));
-    dpy0.print  (F("last line."));
-    #endif
+    dpy0.setTextColor(1, 0);
     dpy0.display();
   }
 
   // Setup spi display
   if (!ir1)
   {
-    Serial.println(F("SSD1306 allocation failed"));
+    Serial.println(F("dpy1.begin() failed"));
   }
   else
   {
     dpy1.clearDisplay();
     dpy1.setTextSize(2);
-    dpy1.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-    dpy1.setCursor(2, 20);
-    //dpy1.print(F("123 456"));
+    dpy1.setTextColor(1, 0);
     dpy1.display();
   }
 
-  //status_line_dirty[0] = 0xff;
-  //status_line_dirty[1] = 0xff;
+  if (!ir2)
+  {
+    Serial.println(F("dpy2.begin() failed"));
+  }
+  else
+  {
+    dpy2.clearDisplay();
+    dpy2.setTextSize(2);
+    dpy2.setTextColor(1, 0);
+    dpy2.display();
+  }
+
   last_time_stamp = millis();
 }
 
@@ -257,15 +273,13 @@ void loop()
   }
   last_time_stamp = current_time_stamp;
 
-  
-#if 1
+
   static uint64_t counter = 0;
-  counter += rand() & 0xffff;
-  counter += 0xffff;
+  counter += rand() & 0xfffffff;
   counter++;
-  uint8_t d[12];
+  uint8_t d[18];
   uint64_t v = counter;
-  for ( int i=0; i<12; ++i )
+  for ( int i=0; i<18; ++i )
   {
     d[i] = v % 10ULL;
     v = v / 10;
@@ -288,43 +302,25 @@ void loop()
   line1[2]='0'+d[9];
   line1[1]='0'+d[10];
   line1[0]='0'+d[11];
+  uint8_t line2[8];
+  line2[7]=0;
+  line2[6]='0'+d[12];
+  line2[5]='0'+d[13];
+  line2[4]='0'+d[14];
+  line2[3]=' ';
+  line2[2]='0'+d[15];
+  line2[1]='0'+d[16];
+  line2[0]='0'+d[17];
+  
   dpy0.setCursor(2, 20);
   dpy0.print(F(line0));
   dpy0.display();
   dpy1.setCursor(2, 20);
   dpy1.print(F(line1));
   dpy1.display();
-#else
-  static int8_t digits[8] = { '0','0','0', ' ', '0', '0', '0', 0 };
-  if ( ++digits[6] > '9' )
-  {
-    digits[6] = '0';
-    if ( ++digits[5] > '9' )
-    {
-      digits[5] = '0';
-      if ( ++digits[4] > '9' )
-      {
-        digits[4] = '0';
-        if ( ++digits[2] > '9' )
-        {
-          digits[2] = '0';
-          if ( ++digits[1] > '9' )
-          {
-            digits[1] = '0';
-            if ( ++digits[0] > '9' )
-            {
-              digits[0] = '0';
-            }
-          }
-        }
-      }
-    }
-  }
-    
-  dpy0.setCursor(2, 20);
-  dpy0.print(F(digits));
-  dpy0.display();
-#endif
+  dpy2.setCursor(2, 20);
+  dpy2.print(F(line2));
+  dpy2.display();
 
 }
 
