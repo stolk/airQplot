@@ -3,7 +3,7 @@ arduino code for CO2 meter.
 
 ## Building
 
-Build with Arduino IDE, nightly build.
+Build it with Arduino IDE. (I used a nightly build of 1.8.20)
 
 ## Copyright
 
