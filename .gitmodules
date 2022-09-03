@@ -1,0 +1,3 @@
+[submodule "Adafruit_MPL3115A2_Library"]
+	path = Adafruit_MPL3115A2_Library
+	url = https://github.com/stolk/Adafruit_MPL3115A2_Library
