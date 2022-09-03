@@ -104,7 +104,10 @@ static void setupBarometer(void)
   if (!baro.begin())
     Serial.println("Could not find bariometric sensor. Check wiring.");
   else
+  {
     baro.setSeaPressure(1012 );
+    Serial.println("Barometer set up.");
+  }
 }
 
 
@@ -129,6 +132,8 @@ static void setupCO2Sensor(void)
 
   err = cdos.startPeriodicMeasurement();
   assert(!err);
+
+  Serial.println("CO2 sensor was set up.");
 }
 
 
@@ -282,15 +287,6 @@ void setup()
 
   knob_setup(0, ENCA,ENCB,ENCSW);
 
-  setupBarometer();
-  Serial.println("barometer was set up.");
-
-  setupCO2Sensor();
-  Serial.println("CO2 sensor was set up.");
-
-  memset(datalog_lo, 0xff, sizeof(datalog_lo));
-  memset(datalog_hi, 0xff, sizeof(datalog_hi));
-
   oled_setup(OLEDADDR0);
   oled_pattern(OLEDADDR0, 0x0, 0 );
   oled_write_row(OLEDADDR0, 0, 0, "GSAS Inc  ", 0x0);
@@ -303,6 +299,13 @@ void setup()
 
   oled_set_contrast( OLEDADDR0, 0x60 );
   oled_set_contrast( OLEDADDR1, 0x60 );
+  
+  setupBarometer();
+
+  setupCO2Sensor();
+
+  memset(datalog_lo, 0xff, sizeof(datalog_lo));
+  memset(datalog_hi, 0xff, sizeof(datalog_hi));
 
   memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
 
@@ -332,7 +335,9 @@ static void update_status(uint16_t pre, uint16_t co2)
   *p++ = 'm';
   *p++ = ' ';
   *p++ = 0;
+  status_line_dirty[0] = 0xff;
 
+#if 0 // This just confuses people, thinking it is 2 graphs. Ugh!
   k = (pre/1000);
   h = (pre%1000)/100;
   d = (pre%100)/10;
@@ -347,9 +352,8 @@ static void update_status(uint16_t pre, uint16_t co2)
   *p++ = 'P';
   *p++ = 'a';
   *p++ = 0;
-
-  status_line_dirty[0] = 0xff;
-  status_line_dirty[1] = 0xff; 
+  status_line_dirty[1] = 0xff;
+#endif  
 }
 
 
@@ -367,6 +371,8 @@ void loop()
     elapsed = current_time_stamp - last_time_stamp;
   }
   last_time_stamp = current_time_stamp;
+
+  Serial.println(last_time_stamp);
 
   for ( int z=0; z<NUMZ; ++z )
     sample_delay[z] -= elapsed;
@@ -477,7 +483,6 @@ void loop()
       }
     }
   }
-
 }
 
 
