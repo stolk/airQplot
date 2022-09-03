@@ -21,11 +21,17 @@
 # define OLED_CS0    10
 # define OLED_CS1     3
 # define OLED_CS2     2
+# define OLED_CS3     2
 # define OLED_DC      1
-# define OLED_RESET   -1
+# define OLED_RESET  -1
 #elif defined(ARDUINO_AVR_MICRO)
-# define OLED_CS     20
-# define OLED_DC     19
+# error "Not supported"
+#elif defined(ESP_PLATFORM)
+# define OLED_CS0     20
+# define OLED_CS1     21
+# define OLED_CS2     3
+# define OLED_CS3     7
+# define OLED_DC      5
 # define OLED_RESET  -1
 #endif
 
@@ -47,17 +53,20 @@
 
 #if defined(DOSSD1306)
 # include <Adafruit_SSD1306.h>
+# define DPY Adafruit_SDD1306
 #endif
 
 #if defined(DOSH1106)
 # include <Adafruit_SH110X.h>
+# define DPY Adafruit_SH1106G
 #endif
+
+#define NUMD  4
+static DPY* displays[NUMD];
 
 #include "oled.h"
 
 
-#define OLEDADDR0 0x3c
-#define OLEDADDR1 0x3d
 
 const uint32_t bitrate = 2000000;
 #if defined(DOSH1106)
@@ -85,9 +94,39 @@ static void setupSerial(void)
 {
   //Initialize serial and wait for port to open:
   Serial.begin(115200);
-  for (int i = 0; i < 20 && !Serial; ++i)
+  for (int i = 0; i < 30 && !Serial; ++i)
     delay(100);
   Serial.println(BOARDNAME " is now ready.");
+}
+
+
+static void setupDisplays(void)
+{
+  const int8_t cs[NUMD] = { OLED_CS0, OLED_CS1, OLED_CS2, OLED_CS3 };
+  for (int d=0; d<NUMD; ++d)
+  {
+    displays[d] = new DPY(128, 64, &SPI, OLED_DC, OLED_RESET, cs[d]);
+    
+#if defined(DOSH1106)
+    const int ir = displays[d]->begin(0,true);
+#else
+    const int ir = displays[d]->begin(SSD1306_EXTERNALVCC); // SSD1306_SWITCHCAPVCC
+#endif
+
+    if (!ir)
+    {
+      Serial.println(F("display->begin() failed"));
+      delete displays[d];
+      displays[d]=0;
+    }
+    else
+    {
+     displays[d]->clearDisplay();
+     displays[d]->setTextSize(4);
+     displays[d]->setTextColor(1, 0);
+     displays[d]->display();
+    }
+  }
 }
 
 
@@ -114,21 +153,6 @@ static void scan(void)
   Serial.println (" device(s).");
 }
 
-
-static uint8_t update_status_lines(void)
-{
-  static uint8_t dpy = 0;
-  if ( status_line_dirty[dpy] )
-  {
-    oled_write_row(OLEDADDR0 + dpy, 0, 0, status_lines[dpy], 0x0);
-    oled_write_row(OLEDADDR0 + dpy, 1, 0, status_lines[dpy], 0x0);
-    status_line_dirty[dpy] = 0;
-    dpy = (dpy + 1) & 1;
-    return 1;
-  }
-  dpy = (dpy + 1) & 1;
-  return 0;
-}
 
 
 #if defined(DOINA3221)
@@ -157,9 +181,6 @@ void setup()
   pinMode( LED_BUILTIN_RX, INPUT);
 #endif
 
-  Serial.print("RAND_MAX:");
-  Serial.println(RAND_MAX);
-
   // Join the i2c bus as a master.
   Wire.begin(I2CSDA, I2CSCL);
 
@@ -180,79 +201,8 @@ void setup()
   printCurrentForChannel(INA3221_CH3);
 #endif
 
-#if defined(DOSSD1306)
-  oled_setup(OLEDADDR0);
-  oled_pattern(OLEDADDR0, 0x0, 0 );
-  oled_write_row(OLEDADDR0, 0, 0, "(C)2022   ", 0x0);
-  oled_write_row(OLEDADDR0, 1, 0, "(C)2022   ", 0x0);
-  oled_write_row(OLEDADDR0, 2, 0, "GSAS Inc. ", 0x0);
-  oled_write_row(OLEDADDR0, 3, 0, "GSAS Inc. ", 0x0);
-  oled_write_row(OLEDADDR0, 4, 0, "Monitor 2 ", 0x0);
-  oled_write_row(OLEDADDR0, 5, 0, "Monitor 2 ", 0x0);
-
-  oled_setup(OLEDADDR1);
-  oled_pattern(OLEDADDR1, 0x0, 0 );
-  oled_write_row(OLEDADDR1, 0, 0, "(C)2022   ", 0x0);
-  oled_write_row(OLEDADDR1, 1, 0, "(C)2022   ", 0x0);
-  oled_write_row(OLEDADDR1, 2, 0, "GSAS Inc. ", 0x0);
-  oled_write_row(OLEDADDR1, 3, 0, "GSAS Inc. ", 0x0);
-  oled_write_row(OLEDADDR1, 4, 0, "Monitor 3 ", 0x0);
-  oled_write_row(OLEDADDR1, 5, 0, "Monitor 3 ", 0x0);
-
-  oled_set_contrast( OLEDADDR0, 0x60 );
-  oled_set_contrast( OLEDADDR1, 0x60 );
-#endif
+  setupDisplays();
   
-
-#if defined(DOSH1106)
-  const int ir0 = dpy0.begin(0,true);
-  const int ir1 = dpy1.begin(0,true);
-  const int ir2 = dpy2.begin(0,true);
-#else
-  const int ir0 = dpy0.begin(SSD1306_EXTERNALVCC); // SSD1306_SWITCHCAPVCC
-  const int ir1 = dpy1.begin(SSD1306_EXTERNALVCC);
-  const int ir2 = dpy2.begin(SSD1306_EXTERNALVCC);
-#endif
-
-
-  // Setup spi display
-  if (!ir0)
-  {
-    Serial.println(F("dpy0.begin() failed"));
-  }
-  else
-  {
-    dpy0.clearDisplay();
-    dpy0.setTextSize(2);
-    dpy0.setTextColor(1, 0);
-    dpy0.display();
-  }
-
-  // Setup spi display
-  if (!ir1)
-  {
-    Serial.println(F("dpy1.begin() failed"));
-  }
-  else
-  {
-    dpy1.clearDisplay();
-    dpy1.setTextSize(2);
-    dpy1.setTextColor(1, 0);
-    dpy1.display();
-  }
-
-  if (!ir2)
-  {
-    Serial.println(F("dpy2.begin() failed"));
-  }
-  else
-  {
-    dpy2.clearDisplay();
-    dpy2.setTextSize(2);
-    dpy2.setTextColor(1, 0);
-    dpy2.display();
-  }
-
   last_time_stamp = millis();
 }
 
@@ -275,52 +225,26 @@ void loop()
 
 
   static uint64_t counter = 0;
-  counter += rand() & 0xfffffff;
-  counter++;
-  uint8_t d[18];
-  uint64_t v = counter;
-  for ( int i=0; i<18; ++i )
+  counter += 1;
+
+  const uint8_t offs = (counter>>5) & 0xf;
+  for (int d=0; d<NUMD; ++d)
   {
-    d[i] = v % 10ULL;
-    v = v / 10;
+    char line[6];
+    uint8_t doff = (NUMD-1-d)*3;
+    line[0] = 'A' + offs + doff + 0;
+    line[1] = ' ';
+    line[2] = 'A' + offs + doff + 1;
+    line[3] = ' ';
+    line[4] = 'A' + offs + doff + 2;
+    line[5] = 0;
+    displays[d]->setCursor(0,0);
+    displays[d]->print(line);
+    displays[d]->display();
   }
-  uint8_t line0[8];
-  line0[7]=0;
-  line0[6]='0'+d[0];
-  line0[5]='0'+d[1];
-  line0[4]='0'+d[2];
-  line0[3]=' ';
-  line0[2]='0'+d[3];
-  line0[1]='0'+d[4];
-  line0[0]='0'+d[5];
-  uint8_t line1[8];
-  line1[7]=0;
-  line1[6]='0'+d[6];
-  line1[5]='0'+d[7];
-  line1[4]='0'+d[8];
-  line1[3]=' ';
-  line1[2]='0'+d[9];
-  line1[1]='0'+d[10];
-  line1[0]='0'+d[11];
-  uint8_t line2[8];
-  line2[7]=0;
-  line2[6]='0'+d[12];
-  line2[5]='0'+d[13];
-  line2[4]='0'+d[14];
-  line2[3]=' ';
-  line2[2]='0'+d[15];
-  line2[1]='0'+d[16];
-  line2[0]='0'+d[17];
-  
-  dpy0.setCursor(2, 20);
-  dpy0.print(F(line0));
-  dpy0.display();
-  dpy1.setCursor(2, 20);
-  dpy1.print(F(line1));
-  dpy1.display();
-  dpy2.setCursor(2, 20);
-  dpy2.print(F(line2));
-  dpy2.display();
+
+  displays[0]->drawBitmap(30, 16,  fntdat+0, 24, 96, 1);
+  displays[0]->display();
 
 }
 
