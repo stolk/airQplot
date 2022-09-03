@@ -34,7 +34,9 @@
 #include <Wire.h>
 
 // For barometric sensor
-#include <Adafruit_MPL3115A2.h>
+// Non-blocking version of Adafruit lib from:
+// https://github.com/stolk/Adafruit_MPL3115A2_Library
+#include "Adafruit_MPL3115A2_NB.h"	
 
 // For CO2 sensor
 #include <SensirionI2CScd4x.h>
@@ -54,7 +56,7 @@ static int curz=3;  // current zoom level: 8x
 #define OLEDADDR0 0x3c
 #define OLEDADDR1 0x3d
 
-static Adafruit_MPL3115A2 baro;
+static Adafruit_MPL3115A2_NB baro;
 
 static SensirionI2CScd4x cdos;
 
