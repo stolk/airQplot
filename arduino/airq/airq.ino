@@ -70,6 +70,10 @@ static const uint16_t samples_per_hr[NUMZ] =
 {
   6,12,24,48,96,192,384,
 };
+static const char *graphrng[NUMZ] = 
+{
+  "43 Hrs  ", "21 Hrs  ", "11 Hrs  ", "5 Hrs   ", "160 Mins", "80 Mins ", "40 Mins ",
+};
 
 static uint32_t last_time_stamp  = 0;
 
@@ -360,6 +364,7 @@ static void update_status(uint16_t pre, uint16_t co2)
   *p++ = ' ';
   *p++ = ' ';
   *p++ = ' ';
+  *p++ = ' ';
   *p++ = 0;
 #endif
   
@@ -385,6 +390,7 @@ void loop()
   for ( int z=0; z<NUMZ; ++z )
     sample_delay[z] -= elapsed;
 
+  // Check which zoom levels need to scroll to the left at this tick.
   for ( int z=0; z<NUMZ; ++z )
   {
     if ( sample_delay[z] <= 0 )
@@ -402,11 +408,15 @@ void loop()
   {
     curz++;
     memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
+    strcpy(status_lines[1], graphrng[curz]);
+    status_line_dirty[1] = 0xff;
   }
   if ( delta==-1 && curz > 0 )
   {
     curz--;
     memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
+    strcpy(status_lines[1], graphrng[curz]);
+    status_line_dirty[1] = 0xff;
   }
   uint8_t s = knob_switch_value(0);
   if ( s != knob_state )
