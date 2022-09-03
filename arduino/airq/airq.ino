@@ -319,12 +319,12 @@ void setup()
 static void update_status(uint16_t pre, uint16_t co2)
 {
   uint8_t k,h,d,u; // kilo,hecto,deca,uni.
-  
+
+  char* p = status_lines[0];
   k = (co2/1000);
   h = (co2%1000)/100;
   d = (co2%100)/10;
   u = (co2%10);
-  char* p = status_lines[0];
   if (k) *p++ = 48 + k;
   *p++ = 48 + h;
   *p++ = 48 + d;
@@ -337,12 +337,12 @@ static void update_status(uint16_t pre, uint16_t co2)
   *p++ = 0;
   status_line_dirty[0] = 0xff;
 
+  p = status_lines[1];
 #if 0 // This just confuses people, thinking it is 2 graphs. Ugh!
   k = (pre/1000);
   h = (pre%1000)/100;
   d = (pre%100)/10;
   u = (pre%10);
-  p = status_lines[1];
   if (k) *p++ = 48 + k;
   *p++ = 48 + h;
   *p++ = 48 + d;
@@ -352,8 +352,18 @@ static void update_status(uint16_t pre, uint16_t co2)
   *p++ = 'P';
   *p++ = 'a';
   *p++ = 0;
+#else
+  *p++ = ' ';
+  *p++ = ' ';
+  *p++ = ' ';
+  *p++ = ' ';
+  *p++ = ' ';
+  *p++ = ' ';
+  *p++ = ' ';
+  *p++ = 0;
+#endif
+  
   status_line_dirty[1] = 0xff;
-#endif  
 }
 
 
@@ -371,8 +381,6 @@ void loop()
     elapsed = current_time_stamp - last_time_stamp;
   }
   last_time_stamp = current_time_stamp;
-
-  Serial.println(last_time_stamp);
 
   for ( int z=0; z<NUMZ; ++z )
     sample_delay[z] -= elapsed;
