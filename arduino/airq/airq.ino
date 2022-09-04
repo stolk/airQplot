@@ -93,6 +93,13 @@ static const char *graphrng[NUMZ] =
 {
   "43 Hrs  ", "21 Hrs  ", "11 Hrs  ", "5 Hrs   ", "160 Mins", "80 Mins ", "40 Mins ",
 };
+static uint8_t dimming_values[3] =
+{
+  0x60, // Little dimming.
+  0x01, // Max dimming.
+  0x00, // Off.
+};
+
 
 static uint32_t last_time_stamp  = 0;
 
@@ -313,11 +320,6 @@ static void cycle_dimming_mode(void)
 {
   dimming_mode = dimming_mode+1;
   dimming_mode = dimming_mode > 2 ? 0 : dimming_mode;
-  uint8_t dimming_values[3] = {
-    0x60, // little dimming.
-    0x01, // max dimming.
-    0x00, // off
-  };
   oled_set_contrast( OLEDADDR0, dimming_values[dimming_mode] );
   oled_set_contrast( OLEDADDR1, dimming_values[dimming_mode] );
   update_leds();
@@ -760,6 +762,12 @@ void handle_knob_input_menu(int8_t sw, int8_t delta)
 
   if ( delta != 0 )
   {
+    // Prevent blind navigation while screen is off.
+    if ( dimming_values[dimming_mode] == 0x00 )
+    {
+      cycle_dimming_mode();
+    }
+
     menu_item += delta;
     menu_item = menu_item % MENU_ITEM_COUNT;
     update_menu();
