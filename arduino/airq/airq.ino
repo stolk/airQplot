@@ -168,7 +168,7 @@ static void scan(void)
       Serial.print (i, HEX);
       Serial.println (")");
       count++;
-      delay (1);  // maybe unneeded?
+      delay (1);
     } // end of good response
   } // end of for loop
   Serial.println ("Finished.");
@@ -183,7 +183,7 @@ static void set_leds(uint8_t r, uint8_t y, uint8_t g )
 {
   const uint8_t pulsewidths[3] =
   {
-    0, 160, 250,
+    0, 160, 250,	// 0 is full bright, 255 is no light.
   };
   const uint8_t pw = pulsewidths[ dimming_mode ];
   const uint8_t rv = r ? pw : 255;
@@ -198,6 +198,7 @@ static void set_leds(uint8_t r, uint8_t y, uint8_t g )
 // Set the leds, based on CO2 value.
 static void update_leds(void)
 {
+  // Activates the red, ylw or grn LED, based on CO2.
   if ( co2 < THRESHOLD_LO )
     set_leds(0,0,1);
   else if ( co2 < THRESHOLD_HI )
@@ -253,6 +254,7 @@ static uint8_t update_graph(void)
 }
 
 
+// The top amber section of each display is used for status text.
 static uint8_t update_status_lines(void)
 {
   static uint8_t dpy=0;
@@ -409,14 +411,13 @@ static void update_status(uint16_t pre, uint16_t co2)
   *p++ = ' ';
   *p++ = 0;
 #endif
-  
   status_line_dirty[1] = 0xff;
 }
 
 
-
 void loop()
 {
+  // Time keeping.
   const uint32_t current_time_stamp = millis();
   uint32_t elapsed;
   if ( current_time_stamp < last_time_stamp )
@@ -446,27 +447,29 @@ void loop()
     }
   }
 
+  // Handle knob turns.
   const int8_t delta = knob_update(0);
   if ( delta==1 && curz < NUMZ-1 )
   {
-    curz++;
+    curz++; // Zoom in
     memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
     strcpy(status_lines[1], graphrng[curz]);
     status_line_dirty[1] = 0xff;
   }
   if ( delta==-1 && curz > 0 )
   {
-    curz--;
+    curz--; // Zoom out
     memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
     strcpy(status_lines[1], graphrng[curz]);
     status_line_dirty[1] = 0xff;
   }
+
   uint8_t s = knob_switch_value(0);
   // Short press was just released?
   if ( s == 1 && knob_state == 0 )
     if ( knob_ms_held > 1 && knob_ms_held < 800 )
       cycle_dimming_mode();
-  // Did knob status change?
+  // Did knob switch status change?
   if ( s != knob_state )
   {
     knob_ms_held = 0;
@@ -509,6 +512,7 @@ void loop()
   if (!updated)
     updated = update_graph();
 
+  // Read the CO2 sensor, and record sample if a new one is available.
   {
     uint16_t rdy = 0xffff;
     uint16_t err = cdos.getDataReadyStatus(rdy);
