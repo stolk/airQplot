@@ -608,6 +608,8 @@ void switch_ui_mode(int8_t mode)
   switch(mode)
   {
     case UI_MODE_GRAPH:
+      status_line_dirty[0] = 0xff;
+      status_line_dirty[1] = 0xff;
       mark_graph_dirty();
       break;
     case UI_MODE_MENU:
