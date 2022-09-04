@@ -33,9 +33,10 @@
 #define UI_MODE_GRAPH 0
 #define UI_MODE_MENU  1
 
-#define SWITCH_NONE  0
-#define SWITCH_SHORT 1
-#define SWITCH_LONG  2
+#define SWITCH_NONE           0
+#define SWITCH_SHORT          1
+#define SWITCH_LONG           2
+#define SWITCH_START_PRESSING 3
 
 #define MENU_ITEM_0_EXIT        0
 #define MENU_ITEM_1_BRIGHTNESS  1
@@ -551,19 +552,23 @@ void handle_knob_input(uint32_t t_elapsed)
   const uint8_t s = knob_switch_value(0);
 
   uint8_t sw = SWITCH_NONE;
-  // Short press was just released?
-  if ( s == 1 && knob_state == 0 )
-  {
-    // Serial.println("***** RELEASE");
-    if ( knob_ms_held > 1 && knob_ms_held < 800 )
-    {
-      // Serial.println("***** RELEASE WAS SHORT");
-      sw = SWITCH_SHORT;
-    }
-  }
+
   // Did knob switch status change?
   if ( s != knob_state )
   {
+    if ( s == 0 )
+    {
+      sw = SWITCH_START_PRESSING;
+    }
+    else
+    {
+      // Short press was just released?
+      if ( knob_ms_held > 1 && knob_ms_held < 800 )
+      {
+        sw = SWITCH_SHORT;
+      }
+    }
+
     knob_ms_held = 0;
     knob_state = s;
     knob_primed = 1;
@@ -575,24 +580,9 @@ void handle_knob_input(uint32_t t_elapsed)
 
   if ( knob_state == 0 && knob_ms_held > 1500 && knob_primed )
   {
-    // Serial.println("***** RELEASE WAS LONGGGGGGGGGGGGGGGGGGG");
     knob_primed = 0;
     sw = SWITCH_LONG;
   }
-
-#if 0
-  Serial.print(" sw=");
-  Serial.print(sw);
-  Serial.print(" knob_state=");
-  Serial.print(knob_state);
-  Serial.print(" knob_ms_held=");
-  Serial.print(knob_ms_held);
-  Serial.print(" s=");
-  Serial.print(s);
-  Serial.print(" delta=");
-  Serial.print(delta);
-  Serial.println();
-#endif
 
   switch(ui_mode)
   {
@@ -603,33 +593,12 @@ void handle_knob_input(uint32_t t_elapsed)
       handle_knob_input_menu(sw, delta);
       break;
   }
+}
 
-// Debug internal state.
-#if 1
-  if ( sw == SWITCH_SHORT || delta != 0 )
-  {
-    Serial.print("state:");
 
-    Serial.print(" s=");
-    Serial.print(s);
-
-    Serial.print(" sw=");
-    Serial.print(sw);
-
-    Serial.print(" delta=");
-    Serial.print(delta);
-
-    Serial.print(" ui_mode=");
-    Serial.print(ui_mode);
-
-    if ( ui_mode == UI_MODE_MENU )
-    {
-      Serial.print(" menu_item=");
-      Serial.print(menu_item);
-    }
-    Serial.println();
-  }
-#endif
+bool is_button_being_held()
+{
+  return knob_primed == 1 && knob_state == 0;
 }
 
 
@@ -656,20 +625,23 @@ void update_menu()
                    menu_item == MENU_ITEM_0_EXIT ? "EXIT      " : "Exit      ",
                    menu_item == MENU_ITEM_1_BRIGHTNESS ? "BRIGHTNESS" : "Brightness",
                    menu_item == MENU_ITEM_2_CALIBRATE ? "CALIBRATE " : "Calibrate ");
-                   //menu_item == MENU_ITEM_3_ABOUT ? "ABOUT     " : "About     "
+                   // TODO: Implement menu scroll.
+                   // menu_item == MENU_ITEM_3_ABOUT ? "ABOUT     " : "About     "
 
   String ppm_text;
+  bool holding;
   switch(menu_item)
   {
-    case 2:
+    case MENU_ITEM_2_CALIBRATE:
       ppm_text = String("to ");
       ppm_text += RECALIBRATE_TARGET;
       ppm_text += " ppm";
       ppm_text += BLANK_TEXT;
       ppm_text = ppm_text.substring(0, strlen(BLANK_TEXT));
+      holding = is_button_being_held();
       update_menu_text(OLEDADDR1,
-                      "Long press",
-                      "to        ",
+                      holding ? "CONTINUE  " : "Long press",
+                      holding ? "HOLDING TO" : "to        ",
                       "calibrate ",
                       ppm_text.c_str());
       break;
@@ -700,35 +672,30 @@ void update_menu_text(int devaddr, const char* line1, const char* line2, const c
 }
 
 
-/*
-  MENU
-  0 Exit
-  1 Brightness
-  2 Calibrate (long press)
-  3 About
-*/
 void handle_knob_input_menu(int8_t sw, int8_t delta)
 {
   switch(menu_item)
   {
-    case 0:
-      // Exit
+    case MENU_ITEM_0_EXIT:
       if ( sw == SWITCH_SHORT )
       {
         switch_ui_mode(UI_MODE_GRAPH);
         return;
       }
       break;
-    case 1:
-      // Brightness
+    case MENU_ITEM_1_BRIGHTNESS:
       if ( sw == SWITCH_SHORT )
       {
         cycle_dimming_mode();
         return;
       }
       break;
-    case 2:
-      // Calibrate (long press)
+    case MENU_ITEM_2_CALIBRATE:
+      if ( sw == SWITCH_START_PRESSING || sw == SWITCH_SHORT )
+      {
+        update_menu();
+        return;
+      }
       if ( sw == SWITCH_LONG )
       {
         calib();
@@ -741,18 +708,14 @@ void handle_knob_input_menu(int8_t sw, int8_t delta)
         return;
       }
       break;
-    case 3:
-      // About
+    case MENU_ITEM_3_ABOUT:
       if ( sw == SWITCH_SHORT )
       {
-        oled_write_row(OLEDADDR1, 2, 0, "This is   ", 0x0);
-        oled_write_row(OLEDADDR1, 3, 0, "This is   ", 0x0);
-
-        oled_write_row(OLEDADDR1, 4, 0, "not a     ", 0x0);
-        oled_write_row(OLEDADDR1, 5, 0, "not a     ", 0x0);
-
-        oled_write_row(OLEDADDR1, 6, 0, "chew toy. ", 0x0);
-        oled_write_row(OLEDADDR1, 7, 0, "chew toy. ", 0x0);
+        update_menu_text(OLEDADDR1,
+                        "WARNING   ",
+                        "This is   ",
+                        "not a     ",
+                        "chew toy. ");
 
         Serial.println("This is not a chew toy.");
         return;
@@ -786,14 +749,14 @@ void handle_knob_input_graph(int8_t sw, int8_t delta)
   // Handle knob turns.
   if ( delta==1 && curz < NUMZ-1 )
   {
-    curz++; // Zoom in
+    curz++; // Zoom in.
     mark_graph_dirty();
     strcpy(status_lines[1], graphrng[curz]);
     status_line_dirty[1] = 0xff;
   }
   if ( delta==-1 && curz > 0 )
   {
-    curz--; // Zoom out
+    curz--; // Zoom out.
     mark_graph_dirty();
     strcpy(status_lines[1], graphrng[curz]);
     status_line_dirty[1] = 0xff;
@@ -803,12 +766,12 @@ void handle_knob_input_graph(int8_t sw, int8_t delta)
 
 void __assert(const char* __func, const char* __file, int __lineno, const char *__sexp)
 {
-  // transmit diagnostic informations through serial link.
+  // Transmit diagnostic informations through serial link.
   Serial.println(__func);
   Serial.println(__file);
   Serial.println(__lineno, DEC);
   Serial.println(__sexp);
   Serial.flush();
-  // abort program execution.
+  // Abort program execution.
   abort();
 }
