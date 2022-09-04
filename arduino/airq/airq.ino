@@ -399,12 +399,14 @@ static void update_status(uint16_t pre, uint16_t co2)
 {
   uint8_t k,h,d,u; // kilo,hecto,deca,uni.
 
-  char* p = status_lines[0];
+  char* p = status_lines[1];
   k = (co2/1000);
   h = (co2%1000)/100;
   d = (co2%100)/10;
   u = (co2%10);
-  if (k) *p++ = 48 + k;
+  *p++ = ' ';
+  *p++ = ' ';
+  *p++ = k ? 48 + k : ' ';
   *p++ = 48 + h;
   *p++ = 48 + d;
   *p++ = 48 + u;
@@ -412,11 +414,10 @@ static void update_status(uint16_t pre, uint16_t co2)
   *p++ = 'p';
   *p++ = 'p';
   *p++ = 'm';
-  *p++ = ' ';
   *p++ = 0;
-  status_line_dirty[0] = 0xff;
+  status_line_dirty[1] = 0xff;
 
-  p = status_lines[1];
+  p = status_lines[0];
 #if 0 // This just confuses people, thinking it is 2 graphs. Ugh!
   k = (pre/1000);
   h = (pre%1000)/100;
@@ -442,7 +443,7 @@ static void update_status(uint16_t pre, uint16_t co2)
   *p++ = ' ';
   *p++ = 0;
 #endif
-  status_line_dirty[1] = 0xff;
+  status_line_dirty[0] = 0xff;
 }
 
 
@@ -753,15 +754,15 @@ void handle_knob_input_graph(int8_t sw, int8_t delta)
   {
     curz++; // Zoom in.
     mark_graph_dirty();
-    strcpy(status_lines[1], graphrng[curz]);
-    status_line_dirty[1] = 0xff;
+    strcpy(status_lines[0], graphrng[curz]);
+    status_line_dirty[0] = 0xff;
   }
   if ( delta==-1 && curz > 0 )
   {
     curz--; // Zoom out.
     mark_graph_dirty();
-    strcpy(status_lines[1], graphrng[curz]);
-    status_line_dirty[1] = 0xff;
+    strcpy(status_lines[0], graphrng[curz]);
+    status_line_dirty[0] = 0xff;
   }
 }
 
