@@ -78,7 +78,7 @@ static PROGMEM const uint8_t patterns[4][16] =
 };
 
 
-static PROGMEM const uint8_t label1900[17] =
+static PROGMEM const uint8_t label1400[17] =
 {
   0x7f,0x5b,0x41,0x5f, 0x7f,0x71,0x77,0x41, 0x7f,0x41,0x5d,0x41, 0x7f,0x41,0x5d,0x41, 0x7f,
 };
@@ -264,8 +264,8 @@ void oled_write_strip
     {
       if ( row==2 )
       {
-       if ( c < sizeof(label1900) )
-         b = pgm_read_byte_near(label1900+c);
+       if ( c < sizeof(label1400) )
+         b = pgm_read_byte_near(label1400+c);
       }
       else if ( row == 7 )
       {
