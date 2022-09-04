@@ -25,6 +25,8 @@
 # error "Unknown platform."
 #endif
 
+#define RECALIBRATE_TARGET 440
+
 #define THRESHOLD_LO  700
 #define THRESHOLD_HI  1000
 
@@ -34,6 +36,14 @@
 #define SWITCH_NONE  0
 #define SWITCH_SHORT 1
 #define SWITCH_LONG  2
+
+#define MENU_ITEM_0_EXIT        0
+#define MENU_ITEM_1_BRIGHTNESS  1
+#define MENU_ITEM_2_CALIBRATE   2
+#define MENU_ITEM_3_ABOUT       3
+#define MENU_ITEM_COUNT 4
+
+#define BLANK_TEXT "          "
 
 #define __ASSERT_USE_STDERR
 #include <assert.h>
@@ -287,7 +297,7 @@ static void calib(void)
 
   delay(500);
 
-  uint16_t target = 440;
+  uint16_t target = RECALIBRATE_TARGET;
   uint16_t frc = 0x5555;
   err = cdos.performForcedRecalibration(target, frc );
   assert(!err);
@@ -342,7 +352,7 @@ void setup()
   scan();
 #endif
 
-  knob_setup(0, ENCA,ENCB,ENCSW);
+  knob_setup(0, ENCA, ENCB, ENCSW);
 
   oled_setup(OLEDADDR0);
   oled_pattern(OLEDADDR0, 0x0, 0 );
@@ -354,8 +364,8 @@ void setup()
   oled_write_row(OLEDADDR1, 0, 0, "(c)2022   ", 0x0);
   oled_write_row(OLEDADDR1, 1, 0, "(c)2022   ", 0x0);
 
-  oled_set_contrast( OLEDADDR0, 0x60 );
-  oled_set_contrast( OLEDADDR1, 0x60 );
+  oled_set_contrast(OLEDADDR0, 0x60);
+  oled_set_contrast(OLEDADDR1, 0x60);
 
   setupBarometer();
 
@@ -467,7 +477,7 @@ void loop()
 
   handle_knob_input(elapsed);
 
-  // Clear stale notifications.
+  // Evict stale status messages.
   if ( notification_time > 0 )
   {
     notification_time -= elapsed;
@@ -475,18 +485,21 @@ void loop()
     set_leds( lnr==0, lnr==1, lnr==2 );
     if ( notification_time <= 0 )
     {
-      strcpy(status_lines[0], "          " );
-      strcpy(status_lines[1], "          " );
+      strcpy(status_lines[0], BLANK_TEXT);
+      strcpy(status_lines[1], BLANK_TEXT);
       status_line_dirty[0] = 0xff;
       status_line_dirty[1] = 0xff;
       set_leds(0,0,0);
     }
   }
 
-  // Update status lines and graph.
-  uint8_t updated = update_status_lines();
-  if (!updated)
-    updated = update_graph();
+  if ( ui_mode == UI_MODE_GRAPH )
+  {
+    // Update status lines and graph.
+    uint8_t updated = update_status_lines();
+    if (!updated)
+      updated = update_graph();
+  }
 
   // Get the barometric pressure.
   const uint16_t pre = updateBarometer();
@@ -500,7 +513,7 @@ void loop()
     {
       float temperature;
       float humidity;
-      uint16_t err = cdos.readMeasurement(co2,temperature,humidity);
+      uint16_t err = cdos.readMeasurement(co2, temperature, humidity);
       assert(err==0);
       Serial.print("co2:");
       Serial.print(co2);
@@ -618,7 +631,73 @@ void handle_knob_input(uint32_t t_elapsed)
 }
 
 
-#define MENU_ITEM_COUNT 4
+void switch_ui_mode(int8_t mode)
+{
+  ui_mode = mode;
+  switch(mode)
+  {
+    case UI_MODE_GRAPH:
+      mark_graph_dirty();
+      break;
+    case UI_MODE_MENU:
+      menu_item = MENU_ITEM_0_EXIT;
+      update_menu();
+      break;
+  }
+}
+
+
+void update_menu()
+{
+  update_menu_text(OLEDADDR0,
+                   "   MENU   ",
+                   menu_item == MENU_ITEM_0_EXIT ? "EXIT      " : "Exit      ",
+                   menu_item == MENU_ITEM_1_BRIGHTNESS ? "BRIGHTNESS" : "Brightness",
+                   menu_item == MENU_ITEM_2_CALIBRATE ? "CALIBRATE " : "Calibrate ");
+                   //menu_item == MENU_ITEM_3_ABOUT ? "ABOUT     " : "About     "
+
+  String ppm_text;
+  switch(menu_item)
+  {
+    case 2:
+      ppm_text = String("to ");
+      ppm_text += RECALIBRATE_TARGET;
+      ppm_text += " ppm";
+      ppm_text += BLANK_TEXT;
+      ppm_text = ppm_text.substring(0, strlen(BLANK_TEXT));
+      update_menu_text(OLEDADDR1,
+                      "Long press",
+                      "to        ",
+                      "calibrate ",
+                      ppm_text.c_str());
+      break;
+    default:
+      update_menu_text(OLEDADDR1,
+                      BLANK_TEXT,
+                      BLANK_TEXT,
+                      BLANK_TEXT,
+                      BLANK_TEXT);
+      break;
+  }
+}
+
+
+void update_menu_text(int devaddr, const char* line1, const char* line2, const char* line3, const char* line4)
+{
+  oled_write_row(devaddr, 0, 0, line1, 0x0);
+  oled_write_row(devaddr, 1, 0, line1, 0x0);
+
+  oled_write_row(devaddr, 2, 0, line2, 0x0);
+  oled_write_row(devaddr, 3, 0, line2, 0x0);
+
+  oled_write_row(devaddr, 4, 0, line3, 0x0);
+  oled_write_row(devaddr, 5, 0, line3, 0x0);
+
+  oled_write_row(devaddr, 6, 0, line4, 0x0);
+  oled_write_row(devaddr, 7, 0, line4, 0x0);
+}
+
+
 /*
   MENU
   0 Exit
@@ -652,8 +731,8 @@ void handle_knob_input_menu(int8_t sw, int8_t delta)
       {
         calib();
         notification_time = 3000;
-        strcpy(status_lines[0], "CALIBRATE " );
-        strcpy(status_lines[1], "COMPLETE  " );
+        strcpy(status_lines[0], "CALIBRATE ");
+        strcpy(status_lines[1], "COMPLETE  ");
         status_line_dirty[0] = 0xff;
         status_line_dirty[1] = 0xff;
         switch_ui_mode(UI_MODE_GRAPH);
@@ -664,13 +743,27 @@ void handle_knob_input_menu(int8_t sw, int8_t delta)
       // About
       if ( sw == SWITCH_SHORT )
       {
+        oled_write_row(OLEDADDR1, 2, 0, "This is   ", 0x0);
+        oled_write_row(OLEDADDR1, 3, 0, "This is   ", 0x0);
+
+        oled_write_row(OLEDADDR1, 4, 0, "not a     ", 0x0);
+        oled_write_row(OLEDADDR1, 5, 0, "not a     ", 0x0);
+
+        oled_write_row(OLEDADDR1, 6, 0, "chew toy. ", 0x0);
+        oled_write_row(OLEDADDR1, 7, 0, "chew toy. ", 0x0);
+
         Serial.println("This is not a chew toy.");
         return;
       }
       break;
   }
-  menu_item += delta;
-  menu_item = menu_item % MENU_ITEM_COUNT;
+
+  if ( delta != 0 )
+  {
+    menu_item += delta;
+    menu_item = menu_item % MENU_ITEM_COUNT;
+    update_menu();
+  }
 }
 
 
@@ -699,20 +792,6 @@ void handle_knob_input_graph(int8_t sw, int8_t delta)
   }
 }
 
-
-void switch_ui_mode(int8_t mode)
-{
-  ui_mode = mode;
-  switch(mode)
-  {
-    case UI_MODE_GRAPH:
-      mark_graph_dirty();
-      break;
-    case UI_MODE_MENU:
-      menu_item = 0;
-      break;
-  }
-}
 
 void __assert(const char* __func, const char* __file, int __lineno, const char *__sexp)
 {
