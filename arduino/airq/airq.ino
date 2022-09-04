@@ -28,6 +28,13 @@
 #define THRESHOLD_LO  700
 #define THRESHOLD_HI  1000
 
+#define UI_MODE_GRAPH 0
+#define UI_MODE_MENU  1
+
+#define SWITCH_NONE  0
+#define SWITCH_SHORT 1
+#define SWITCH_LONG  2
+
 #define __ASSERT_USE_STDERR
 #include <assert.h>
 
@@ -36,7 +43,7 @@
 // For barometric sensor
 // Non-blocking version of Adafruit lib from:
 // https://github.com/stolk/Adafruit_MPL3115A2_Library
-#include "Adafruit_MPL3115A2_NB.h"	
+#include "Adafruit_MPL3115A2_NB.h"
 
 // For CO2 sensor
 #include <SensirionI2CScd4x.h>
@@ -72,7 +79,7 @@ static const uint16_t samples_per_hr[NUMZ] =
 {
   6,12,24,48,96,192,384,
 };
-static const char *graphrng[NUMZ] = 
+static const char *graphrng[NUMZ] =
 {
   "43 Hrs  ", "21 Hrs  ", "11 Hrs  ", "5 Hrs   ", "160 Mins", "80 Mins ", "40 Mins ",
 };
@@ -95,6 +102,8 @@ static uint8_t dimming_mode;
 
 static int32_t notification_time;
 
+static uint8_t ui_mode = UI_MODE_GRAPH;
+static uint8_t menu_item;
 
 #include "oled.h"
 #include "knob.h"
@@ -254,7 +263,7 @@ static uint8_t update_graph(void)
 }
 
 
-// The top amber section of each display is used for status text.
+// The top yellow section of each display is used for status text.
 static uint8_t update_status_lines(void)
 {
   static uint8_t dpy=0;
@@ -277,7 +286,7 @@ static void calib(void)
   assert(!err);
 
   delay(500);
-  
+
   uint16_t target = 440;
   uint16_t frc = 0x5555;
   err = cdos.performForcedRecalibration(target, frc );
@@ -286,7 +295,7 @@ static void calib(void)
   Serial.print("frc:"); Serial.println(frc); // On my sensor, this returned: 31857
 
   err = cdos.startPeriodicMeasurement();
-  assert(!err);  
+  assert(!err);
 }
 
 
@@ -309,7 +318,7 @@ void setup()
 {
   setupSerial();
 
-#if defined( LED_BUILTIN_TX)
+#if defined( LED_BUILTIN_TX )
   // No TX and RX leds, please.
   pinMode( LED_BUILTIN_TX, INPUT);
   pinMode( LED_BUILTIN_RX, INPUT);
@@ -347,20 +356,29 @@ void setup()
 
   oled_set_contrast( OLEDADDR0, 0x60 );
   oled_set_contrast( OLEDADDR1, 0x60 );
-  
+
   setupBarometer();
 
   setupCO2Sensor();
 
+  // Read initial knob state.
+  knob_state = knob_switch_value(0);
+
   memset(datalog_lo, 0xff, sizeof(datalog_lo));
   memset(datalog_hi, 0xff, sizeof(datalog_hi));
 
-  memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
+  mark_graph_dirty();
 
   for ( int z=0; z<NUMZ; ++z )
     sample_delay[z] = periods[z];
 
   last_time_stamp = millis();
+}
+
+
+static void mark_graph_dirty()
+{
+  memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
 }
 
 
@@ -443,53 +461,13 @@ void loop()
       logidx[z] += 1;
       num_measurements[z] = 0;
       if ( curz == z )
-        memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
+        mark_graph_dirty();
     }
   }
 
-  // Handle knob turns.
-  const int8_t delta = knob_update(0);
-  if ( delta==1 && curz < NUMZ-1 )
-  {
-    curz++; // Zoom in
-    memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
-    strcpy(status_lines[1], graphrng[curz]);
-    status_line_dirty[1] = 0xff;
-  }
-  if ( delta==-1 && curz > 0 )
-  {
-    curz--; // Zoom out
-    memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
-    strcpy(status_lines[1], graphrng[curz]);
-    status_line_dirty[1] = 0xff;
-  }
+  handle_knob_input(elapsed);
 
-  uint8_t s = knob_switch_value(0);
-  // Short press was just released?
-  if ( s == 1 && knob_state == 0 )
-    if ( knob_ms_held > 1 && knob_ms_held < 800 )
-      cycle_dimming_mode();
-  // Did knob switch status change?
-  if ( s != knob_state )
-  {
-    knob_ms_held = 0;
-    knob_state = s;
-    knob_primed = 1;
-  }
-  else
-  {
-    knob_ms_held += elapsed;
-  }
-  if ( knob_state==0 && knob_ms_held > 1500 && knob_primed )
-  {
-    knob_primed = 0;
-    calib();
-    notification_time = 3000;
-    strcpy(status_lines[0], "CALIBRATE " );
-    strcpy(status_lines[1], "COMPLETE  " );
-    status_line_dirty[0] = 0xff;
-    status_line_dirty[1] = 0xff;
-  }
+  // Clear stale notifications.
   if ( notification_time > 0 )
   {
     notification_time -= elapsed;
@@ -504,13 +482,14 @@ void loop()
       set_leds(0,0,0);
     }
   }
-  
-  // Get the barometric pressure.
-  const uint16_t pre = updateBarometer();
 
+  // Update status lines and graph.
   uint8_t updated = update_status_lines();
   if (!updated)
     updated = update_graph();
+
+  // Get the barometric pressure.
+  const uint16_t pre = updateBarometer();
 
   // Read the CO2 sensor, and record sample if a new one is available.
   {
@@ -550,9 +529,194 @@ void loop()
 }
 
 
+void handle_knob_input(uint32_t t_elapsed)
+{
+  const int8_t delta = knob_update(0);
+
+  const uint8_t s = knob_switch_value(0);
+
+  uint8_t sw = SWITCH_NONE;
+  // Short press was just released?
+  if ( s == 1 && knob_state == 0 )
+  {
+    // Serial.println("***** RELEASE");
+    if ( knob_ms_held > 1 && knob_ms_held < 800 )
+    {
+      // Serial.println("***** RELEASE WAS SHORT");
+      sw = SWITCH_SHORT;
+    }
+  }
+  // Did knob switch status change?
+  if ( s != knob_state )
+  {
+    knob_ms_held = 0;
+    knob_state = s;
+    knob_primed = 1;
+  }
+  else if ( s == 0 )
+  {
+    knob_ms_held += t_elapsed;
+  }
+
+  if ( knob_state == 0 && knob_ms_held > 1500 && knob_primed )
+  {
+    // Serial.println("***** RELEASE WAS LONGGGGGGGGGGGGGGGGGGG");
+    knob_primed = 0;
+    sw = SWITCH_LONG;
+  }
+
+#if 0
+  Serial.print(" sw=");
+  Serial.print(sw);
+  Serial.print(" knob_state=");
+  Serial.print(knob_state);
+  Serial.print(" knob_ms_held=");
+  Serial.print(knob_ms_held);
+  Serial.print(" s=");
+  Serial.print(s);
+  Serial.print(" delta=");
+  Serial.print(delta);
+  Serial.println();
+#endif
+
+  switch(ui_mode)
+  {
+    case UI_MODE_GRAPH:
+      handle_knob_input_graph(sw, delta);
+      break;
+    case UI_MODE_MENU:
+      handle_knob_input_menu(sw, delta);
+      break;
+  }
+
+// Debug internal state.
+#if 1
+  if ( sw == SWITCH_SHORT || delta != 0 )
+  {
+    Serial.print("state:");
+
+    Serial.print(" s=");
+    Serial.print(s);
+
+    Serial.print(" sw=");
+    Serial.print(sw);
+
+    Serial.print(" delta=");
+    Serial.print(delta);
+
+    Serial.print(" ui_mode=");
+    Serial.print(ui_mode);
+
+    if ( ui_mode == UI_MODE_MENU )
+    {
+      Serial.print(" menu_item=");
+      Serial.print(menu_item);
+    }
+    Serial.println();
+  }
+#endif
+}
+
+
+#define MENU_ITEM_COUNT 4
+/*
+  MENU
+  0 Exit
+  1 Brightness
+  2 Calibrate (long press)
+  3 About
+*/
+void handle_knob_input_menu(int8_t sw, int8_t delta)
+{
+  switch(menu_item)
+  {
+    case 0:
+      // Exit
+      if ( sw == SWITCH_SHORT )
+      {
+        switch_ui_mode(UI_MODE_GRAPH);
+        return;
+      }
+      break;
+    case 1:
+      // Brightness
+      if ( sw == SWITCH_SHORT )
+      {
+        cycle_dimming_mode();
+        return;
+      }
+      break;
+    case 2:
+      // Calibrate (long press)
+      if ( sw == SWITCH_LONG )
+      {
+        calib();
+        notification_time = 3000;
+        strcpy(status_lines[0], "CALIBRATE " );
+        strcpy(status_lines[1], "COMPLETE  " );
+        status_line_dirty[0] = 0xff;
+        status_line_dirty[1] = 0xff;
+        switch_ui_mode(UI_MODE_GRAPH);
+        return;
+      }
+      break;
+    case 3:
+      // About
+      if ( sw == SWITCH_SHORT )
+      {
+        Serial.println("This is not a chew toy.");
+        return;
+      }
+      break;
+  }
+  menu_item += delta;
+  menu_item = menu_item % MENU_ITEM_COUNT;
+}
+
+
+void handle_knob_input_graph(int8_t sw, int8_t delta)
+{
+    if ( sw == SWITCH_SHORT )
+    {
+      switch_ui_mode(UI_MODE_MENU);
+      return;
+    }
+
+  // Handle knob turns.
+  if ( delta==1 && curz < NUMZ-1 )
+  {
+    curz++; // Zoom in
+    mark_graph_dirty();
+    strcpy(status_lines[1], graphrng[curz]);
+    status_line_dirty[1] = 0xff;
+  }
+  if ( delta==-1 && curz > 0 )
+  {
+    curz--; // Zoom out
+    mark_graph_dirty();
+    strcpy(status_lines[1], graphrng[curz]);
+    status_line_dirty[1] = 0xff;
+  }
+}
+
+
+void switch_ui_mode(int8_t mode)
+{
+  ui_mode = mode;
+  switch(mode)
+  {
+    case UI_MODE_GRAPH:
+      mark_graph_dirty();
+      break;
+    case UI_MODE_MENU:
+      menu_item = 0;
+      break;
+  }
+}
+
 void __assert(const char* __func, const char* __file, int __lineno, const char *__sexp)
 {
-  // transmit diagnostic informations through serial link. 
+  // transmit diagnostic informations through serial link.
   Serial.println(__func);
   Serial.println(__file);
   Serial.println(__lineno, DEC);
