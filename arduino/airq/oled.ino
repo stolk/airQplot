@@ -286,5 +286,9 @@ void oled_set_contrast( uint8_t devaddr, uint8_t contrast )
   Wire.write(OLED_CONTROL_BYTE_CMD_STREAM);
   Wire.write(OLED_CMD_SET_CONTRAST);
   Wire.write(contrast); // 0x7F is maximum.  
+  if (contrast)
+    Wire.write(OLED_CMD_DISPLAY_ON);
+  else
+    Wire.write(OLED_CMD_DISPLAY_OFF);
   Wire.endTransmission();
 }

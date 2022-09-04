@@ -79,6 +79,8 @@ static const char *graphrng[NUMZ] =
 
 static uint32_t last_time_stamp  = 0;
 
+static uint16_t co2 = 0;
+
 static uint8_t datalog_lo[NUMZ][256];
 static uint8_t datalog_hi[NUMZ][256];
 static uint8_t logidx[NUMZ];
@@ -88,6 +90,8 @@ static int16_t num_measurements[NUMZ];
 static uint8_t knob_state;
 static uint32_t knob_ms_held;
 static uint8_t knob_primed;
+
+static uint8_t dimming_mode;
 
 static int32_t notification_time;
 
@@ -174,11 +178,32 @@ static void scan(void)
 }
 
 
+// Set the leds, modulated by dimming_mode
 static void set_leds(uint8_t r, uint8_t y, uint8_t g )
 {
-  digitalWrite(PINLEDR,!r);
-  digitalWrite(PINLEDY,!y);
-  digitalWrite(PINLEDG,!g);
+  const uint8_t pulsewidths[3] =
+  {
+    0, 160, 250,
+  };
+  const uint8_t pw = pulsewidths[ dimming_mode ];
+  const uint8_t rv = r ? pw : 255;
+  const uint8_t yv = y ? pw : 255;
+  const uint8_t gv = g ? pw : 255;
+  analogWrite(PINLEDR, rv);
+  analogWrite(PINLEDY, yv);
+  analogWrite(PINLEDG, gv);
+}
+
+
+// Set the leds, based on CO2 value.
+static void update_leds(void)
+{
+  if ( co2 < THRESHOLD_LO )
+    set_leds(0,0,1);
+  else if ( co2 < THRESHOLD_HI )
+    set_leds(0,1,0);
+  else
+    set_leds(1,0,0);
 }
 
 
@@ -260,6 +285,21 @@ static void calib(void)
 
   err = cdos.startPeriodicMeasurement();
   assert(!err);  
+}
+
+
+static void cycle_dimming_mode(void)
+{
+  dimming_mode = dimming_mode+1;
+  dimming_mode = dimming_mode > 2 ? 0 : dimming_mode;
+  uint8_t dimming_values[3] = {
+    0x60, // little dimming.
+    0x01, // max dimming.
+    0x00, // off
+  };
+  oled_set_contrast( OLEDADDR0, dimming_values[dimming_mode] );
+  oled_set_contrast( OLEDADDR1, dimming_values[dimming_mode] );
+  update_leds();
 }
 
 
@@ -374,6 +414,7 @@ static void update_status(uint16_t pre, uint16_t co2)
 }
 
 
+
 void loop()
 {
   const uint32_t current_time_stamp = millis();
@@ -421,6 +462,11 @@ void loop()
     status_line_dirty[1] = 0xff;
   }
   uint8_t s = knob_switch_value(0);
+  // Short press was just released?
+  if ( s == 1 && knob_state == 0 )
+    if ( knob_ms_held > 1 && knob_ms_held < 800 )
+      cycle_dimming_mode();
+  // Did knob status change?
   if ( s != knob_state )
   {
     knob_ms_held = 0;
@@ -469,7 +515,6 @@ void loop()
     assert(err==0);
     if ( (rdy & 0x7ff ) != 0 )
     {
-      uint16_t co2;
       float temperature;
       float humidity;
       uint16_t err = cdos.readMeasurement(co2,temperature,humidity);
@@ -485,13 +530,8 @@ void loop()
       if ( notification_time <= 0 )
         update_status( pre, co2 );
 
-      if ( co2 < THRESHOLD_LO )
-        set_leds(0,0,1);
-      else if ( co2 < THRESHOLD_HI )
-        set_leds(0,1,0);
-      else
-        set_leds(1,0,0);
-      
+      update_leds();
+
       int16_t v = co2 < 400 ? 0 : (co2 - 400) / 22;
       v = v > 47 ? 47 : v;
       const uint8_t s = (uint8_t)v;
