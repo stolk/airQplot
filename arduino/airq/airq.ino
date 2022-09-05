@@ -25,8 +25,26 @@
 # error "Unknown platform."
 #endif
 
+#define RECALIBRATE_TARGET 440
+
 #define THRESHOLD_LO  700
 #define THRESHOLD_HI  1000
+
+#define UI_MODE_GRAPH 0
+#define UI_MODE_MENU  1
+
+#define SWITCH_NONE           0
+#define SWITCH_SHORT          1
+#define SWITCH_LONG           2
+#define SWITCH_START_PRESSING 3
+
+#define MENU_ITEM_0_EXIT        0
+#define MENU_ITEM_1_BRIGHTNESS  1
+#define MENU_ITEM_2_CALIBRATE   2
+#define MENU_ITEM_3_ABOUT       3
+#define MENU_ITEM_COUNT 4
+
+#define BLANK_TEXT "          "
 
 #define __ASSERT_USE_STDERR
 #include <assert.h>
@@ -36,7 +54,7 @@
 // For barometric sensor
 // Non-blocking version of Adafruit lib from:
 // https://github.com/stolk/Adafruit_MPL3115A2_Library
-#include "Adafruit_MPL3115A2_NB.h"	
+#include "Adafruit_MPL3115A2_NB.h"
 
 // For CO2 sensor
 #include <SensirionI2CScd4x.h>
@@ -72,10 +90,17 @@ static const uint16_t samples_per_hr[NUMZ] =
 {
   6,12,24,48,96,192,384,
 };
-static const char *graphrng[NUMZ] = 
+static const char *graphrng[NUMZ] =
 {
   "43 Hrs  ", "21 Hrs  ", "11 Hrs  ", "5 Hrs   ", "160 Mins", "80 Mins ", "40 Mins ",
 };
+static uint8_t dimming_values[3] =
+{
+  0x60, // Little dimming.
+  0x01, // Max dimming.
+  0x00, // Off.
+};
+
 
 static uint32_t last_time_stamp  = 0;
 
@@ -95,6 +120,8 @@ static uint8_t dimming_mode;
 
 static int32_t notification_time;
 
+static uint8_t ui_mode = UI_MODE_GRAPH;
+static uint8_t menu_item;
 
 #include "oled.h"
 #include "knob.h"
@@ -254,7 +281,7 @@ static uint8_t update_graph(void)
 }
 
 
-// The top amber section of each display is used for status text.
+// The top yellow section of each display is used for status text.
 static uint8_t update_status_lines(void)
 {
   static uint8_t dpy=0;
@@ -277,8 +304,8 @@ static void calib(void)
   assert(!err);
 
   delay(500);
-  
-  uint16_t target = 440;
+
+  uint16_t target = RECALIBRATE_TARGET;
   uint16_t frc = 0x5555;
   err = cdos.performForcedRecalibration(target, frc );
   assert(!err);
@@ -286,7 +313,7 @@ static void calib(void)
   Serial.print("frc:"); Serial.println(frc); // On my sensor, this returned: 31857
 
   err = cdos.startPeriodicMeasurement();
-  assert(!err);  
+  assert(!err);
 }
 
 
@@ -294,11 +321,6 @@ static void cycle_dimming_mode(void)
 {
   dimming_mode = dimming_mode+1;
   dimming_mode = dimming_mode > 2 ? 0 : dimming_mode;
-  uint8_t dimming_values[3] = {
-    0x60, // little dimming.
-    0x01, // max dimming.
-    0x00, // off
-  };
   oled_set_contrast( OLEDADDR0, dimming_values[dimming_mode] );
   oled_set_contrast( OLEDADDR1, dimming_values[dimming_mode] );
   update_leds();
@@ -309,7 +331,7 @@ void setup()
 {
   setupSerial();
 
-#if defined( LED_BUILTIN_TX)
+#if defined( LED_BUILTIN_TX )
   // No TX and RX leds, please.
   pinMode( LED_BUILTIN_TX, INPUT);
   pinMode( LED_BUILTIN_RX, INPUT);
@@ -333,7 +355,7 @@ void setup()
   scan();
 #endif
 
-  knob_setup(0, ENCA,ENCB,ENCSW);
+  knob_setup(0, ENCA, ENCB, ENCSW);
 
   oled_setup(OLEDADDR0);
   oled_pattern(OLEDADDR0, 0x0, 0 );
@@ -345,17 +367,20 @@ void setup()
   oled_write_row(OLEDADDR1, 0, 0, "(c)2022   ", 0x0);
   oled_write_row(OLEDADDR1, 1, 0, "(c)2022   ", 0x0);
 
-  oled_set_contrast( OLEDADDR0, 0x60 );
-  oled_set_contrast( OLEDADDR1, 0x60 );
-  
+  oled_set_contrast(OLEDADDR0, 0x60);
+  oled_set_contrast(OLEDADDR1, 0x60);
+
   setupBarometer();
 
   setupCO2Sensor();
 
+  // Read initial knob state.
+  knob_state = knob_switch_value(0);
+
   memset(datalog_lo, 0xff, sizeof(datalog_lo));
   memset(datalog_hi, 0xff, sizeof(datalog_hi));
 
-  memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
+  mark_graph_dirty();
 
   for ( int z=0; z<NUMZ; ++z )
     sample_delay[z] = periods[z];
@@ -364,16 +389,24 @@ void setup()
 }
 
 
+static void mark_graph_dirty()
+{
+  memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
+}
+
+
 static void update_status(uint16_t pre, uint16_t co2)
 {
   uint8_t k,h,d,u; // kilo,hecto,deca,uni.
 
-  char* p = status_lines[0];
+  char* p = status_lines[1];
   k = (co2/1000);
   h = (co2%1000)/100;
   d = (co2%100)/10;
   u = (co2%10);
-  if (k) *p++ = 48 + k;
+  *p++ = ' ';
+  *p++ = ' ';
+  *p++ = k ? 48 + k : ' ';
   *p++ = 48 + h;
   *p++ = 48 + d;
   *p++ = 48 + u;
@@ -381,11 +414,10 @@ static void update_status(uint16_t pre, uint16_t co2)
   *p++ = 'p';
   *p++ = 'p';
   *p++ = 'm';
-  *p++ = ' ';
   *p++ = 0;
-  status_line_dirty[0] = 0xff;
+  status_line_dirty[1] = 0xff;
 
-  p = status_lines[1];
+  p = status_lines[0];
 #if 0 // This just confuses people, thinking it is 2 graphs. Ugh!
   k = (pre/1000);
   h = (pre%1000)/100;
@@ -411,7 +443,7 @@ static void update_status(uint16_t pre, uint16_t co2)
   *p++ = ' ';
   *p++ = 0;
 #endif
-  status_line_dirty[1] = 0xff;
+  status_line_dirty[0] = 0xff;
 }
 
 
@@ -443,53 +475,13 @@ void loop()
       logidx[z] += 1;
       num_measurements[z] = 0;
       if ( curz == z )
-        memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
+        mark_graph_dirty();
     }
   }
 
-  // Handle knob turns.
-  const int8_t delta = knob_update(0);
-  if ( delta==1 && curz < NUMZ-1 )
-  {
-    curz++; // Zoom in
-    memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
-    strcpy(status_lines[1], graphrng[curz]);
-    status_line_dirty[1] = 0xff;
-  }
-  if ( delta==-1 && curz > 0 )
-  {
-    curz--; // Zoom out
-    memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
-    strcpy(status_lines[1], graphrng[curz]);
-    status_line_dirty[1] = 0xff;
-  }
+  handle_knob_input(elapsed);
 
-  uint8_t s = knob_switch_value(0);
-  // Short press was just released?
-  if ( s == 1 && knob_state == 0 )
-    if ( knob_ms_held > 1 && knob_ms_held < 800 )
-      cycle_dimming_mode();
-  // Did knob switch status change?
-  if ( s != knob_state )
-  {
-    knob_ms_held = 0;
-    knob_state = s;
-    knob_primed = 1;
-  }
-  else
-  {
-    knob_ms_held += elapsed;
-  }
-  if ( knob_state==0 && knob_ms_held > 1500 && knob_primed )
-  {
-    knob_primed = 0;
-    calib();
-    notification_time = 3000;
-    strcpy(status_lines[0], "CALIBRATE " );
-    strcpy(status_lines[1], "COMPLETE  " );
-    status_line_dirty[0] = 0xff;
-    status_line_dirty[1] = 0xff;
-  }
+  // Evict stale status messages.
   if ( notification_time > 0 )
   {
     notification_time -= elapsed;
@@ -497,20 +489,24 @@ void loop()
     set_leds( lnr==0, lnr==1, lnr==2 );
     if ( notification_time <= 0 )
     {
-      strcpy(status_lines[0], "          " );
-      strcpy(status_lines[1], "          " );
+      strcpy(status_lines[0], BLANK_TEXT);
+      strcpy(status_lines[1], BLANK_TEXT);
       status_line_dirty[0] = 0xff;
       status_line_dirty[1] = 0xff;
       set_leds(0,0,0);
     }
   }
-  
+
+  if ( ui_mode == UI_MODE_GRAPH )
+  {
+    // Update status lines and graph.
+    uint8_t updated = update_status_lines();
+    if (!updated)
+      updated = update_graph();
+  }
+
   // Get the barometric pressure.
   const uint16_t pre = updateBarometer();
-
-  uint8_t updated = update_status_lines();
-  if (!updated)
-    updated = update_graph();
 
   // Read the CO2 sensor, and record sample if a new one is available.
   {
@@ -521,7 +517,7 @@ void loop()
     {
       float temperature;
       float humidity;
-      uint16_t err = cdos.readMeasurement(co2,temperature,humidity);
+      uint16_t err = cdos.readMeasurement(co2, temperature, humidity);
       assert(err==0);
       Serial.print("co2:");
       Serial.print(co2);
@@ -550,14 +546,235 @@ void loop()
 }
 
 
+void handle_knob_input(uint32_t t_elapsed)
+{
+  const int8_t delta = knob_update(0);
+
+  const uint8_t s = knob_switch_value(0);
+
+  uint8_t sw = SWITCH_NONE;
+
+  // Did knob switch status change?
+  if ( s != knob_state )
+  {
+    if ( s == 0 )
+    {
+      sw = SWITCH_START_PRESSING;
+    }
+    else
+    {
+      // Short press was just released?
+      if ( knob_ms_held > 1 && knob_ms_held < 800 )
+      {
+        sw = SWITCH_SHORT;
+      }
+    }
+
+    knob_ms_held = 0;
+    knob_state = s;
+    knob_primed = 1;
+  }
+  else if ( s == 0 )
+  {
+    knob_ms_held += t_elapsed;
+  }
+
+  if ( knob_state == 0 && knob_ms_held > 1500 && knob_primed )
+  {
+    knob_primed = 0;
+    sw = SWITCH_LONG;
+  }
+
+  switch(ui_mode)
+  {
+    case UI_MODE_GRAPH:
+      handle_knob_input_graph(sw, delta);
+      break;
+    case UI_MODE_MENU:
+      handle_knob_input_menu(sw, delta);
+      break;
+  }
+}
+
+
+bool is_button_being_held()
+{
+  return knob_primed == 1 && knob_state == 0;
+}
+
+
+void switch_ui_mode(int8_t mode)
+{
+  ui_mode = mode;
+  switch(mode)
+  {
+    case UI_MODE_GRAPH:
+      status_line_dirty[0] = 0xff;
+      status_line_dirty[1] = 0xff;
+      mark_graph_dirty();
+      break;
+    case UI_MODE_MENU:
+      menu_item = MENU_ITEM_0_EXIT;
+      update_menu();
+      break;
+  }
+}
+
+
+void update_menu()
+{
+  update_menu_text(OLEDADDR0,
+                   "   MENU   ",
+                   menu_item == MENU_ITEM_0_EXIT ? "EXIT      " : "Exit      ",
+                   menu_item == MENU_ITEM_1_BRIGHTNESS ? "BRIGHTNESS" : "Brightness",
+                   menu_item == MENU_ITEM_2_CALIBRATE ? "CALIBRATE " : "Calibrate ");
+                   // TODO: Implement menu scroll.
+                   // menu_item == MENU_ITEM_3_ABOUT ? "ABOUT     " : "About     "
+
+  String ppm_text;
+  bool holding;
+  switch(menu_item)
+  {
+    case MENU_ITEM_2_CALIBRATE:
+      ppm_text = String("to ");
+      ppm_text += RECALIBRATE_TARGET;
+      ppm_text += " ppm";
+      ppm_text += BLANK_TEXT;
+      ppm_text = ppm_text.substring(0, strlen(BLANK_TEXT));
+      holding = is_button_being_held();
+      update_menu_text(OLEDADDR1,
+                      holding ? "CONTINUE  " : "Long press",
+                      holding ? "HOLDING TO" : "to        ",
+                      "calibrate ",
+                      ppm_text.c_str());
+      break;
+    default:
+      update_menu_text(OLEDADDR1,
+                      BLANK_TEXT,
+                      BLANK_TEXT,
+                      BLANK_TEXT,
+                      BLANK_TEXT);
+      break;
+  }
+}
+
+
+void update_menu_text(int devaddr, const char* line1, const char* line2, const char* line3, const char* line4)
+{
+  oled_write_row(devaddr, 0, 0, line1, 0x0);
+  oled_write_row(devaddr, 1, 0, line1, 0x0);
+
+  oled_write_row(devaddr, 2, 0, line2, 0x0);
+  oled_write_row(devaddr, 3, 0, line2, 0x0);
+
+  oled_write_row(devaddr, 4, 0, line3, 0x0);
+  oled_write_row(devaddr, 5, 0, line3, 0x0);
+
+  oled_write_row(devaddr, 6, 0, line4, 0x0);
+  oled_write_row(devaddr, 7, 0, line4, 0x0);
+}
+
+
+void handle_knob_input_menu(int8_t sw, int8_t delta)
+{
+  switch(menu_item)
+  {
+    case MENU_ITEM_0_EXIT:
+      if ( sw == SWITCH_SHORT )
+      {
+        switch_ui_mode(UI_MODE_GRAPH);
+        return;
+      }
+      break;
+    case MENU_ITEM_1_BRIGHTNESS:
+      if ( sw == SWITCH_SHORT )
+      {
+        cycle_dimming_mode();
+        return;
+      }
+      break;
+    case MENU_ITEM_2_CALIBRATE:
+      if ( sw == SWITCH_START_PRESSING || sw == SWITCH_SHORT )
+      {
+        update_menu();
+        return;
+      }
+      if ( sw == SWITCH_LONG )
+      {
+        calib();
+        notification_time = 3000;
+        strcpy(status_lines[0], "CALIBRATE ");
+        strcpy(status_lines[1], "COMPLETE  ");
+        status_line_dirty[0] = 0xff;
+        status_line_dirty[1] = 0xff;
+        switch_ui_mode(UI_MODE_GRAPH);
+        return;
+      }
+      break;
+    case MENU_ITEM_3_ABOUT:
+      if ( sw == SWITCH_SHORT )
+      {
+        update_menu_text(OLEDADDR1,
+                        "WARNING   ",
+                        "This is   ",
+                        "not a     ",
+                        "chew toy. ");
+
+        Serial.println("This is not a chew toy.");
+        return;
+      }
+      break;
+  }
+
+  if ( delta != 0 )
+  {
+    // Prevent blind navigation while screen is off.
+    if ( dimming_values[dimming_mode] == 0x00 )
+    {
+      cycle_dimming_mode();
+    }
+
+    menu_item += delta;
+    menu_item = menu_item % MENU_ITEM_COUNT;
+    update_menu();
+  }
+}
+
+
+void handle_knob_input_graph(int8_t sw, int8_t delta)
+{
+    if ( sw == SWITCH_SHORT )
+    {
+      switch_ui_mode(UI_MODE_MENU);
+      return;
+    }
+
+  // Handle knob turns.
+  if ( delta==1 && curz < NUMZ-1 )
+  {
+    curz++; // Zoom in.
+    mark_graph_dirty();
+    strcpy(status_lines[0], graphrng[curz]);
+    status_line_dirty[0] = 0xff;
+  }
+  if ( delta==-1 && curz > 0 )
+  {
+    curz--; // Zoom out.
+    mark_graph_dirty();
+    strcpy(status_lines[0], graphrng[curz]);
+    status_line_dirty[0] = 0xff;
+  }
+}
+
+
 void __assert(const char* __func, const char* __file, int __lineno, const char *__sexp)
 {
-  // transmit diagnostic informations through serial link. 
+  // Transmit diagnostic informations through serial link.
   Serial.println(__func);
   Serial.println(__file);
   Serial.println(__lineno, DEC);
   Serial.println(__sexp);
   Serial.flush();
-  // abort program execution.
+  // Abort program execution.
   abort();
 }
