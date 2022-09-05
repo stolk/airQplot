@@ -60,9 +60,9 @@ static Adafruit_MPL3115A2_NB baro;
 
 static SensirionI2CScd4x cdos;
 
-static char status_lines[2][11];
-static uint8_t status_line_dirty[2];
-static uint8_t graph_row_dirty[2][6];
+static char status_lines[2][11];      // 10 characters for each display.
+static uint8_t status_line_dirty[2];  // Does the status line need refreshing?
+static uint8_t graph_row_dirty[2][6]; // Does the graph need refreshing?
 
 static const int32_t periods[NUMZ] =
 {
@@ -74,7 +74,13 @@ static const uint16_t samples_per_hr[NUMZ] =
 };
 static const char *graphrng[NUMZ] = 
 {
-  "43 Hrs  ", "21 Hrs  ", "11 Hrs  ", "5 Hrs   ", "160 Mins", "80 Mins ", "40 Mins ",
+  " 43 Hrs   ",
+  " 21 Hrs   ",
+  " 11 Hrs   ",
+  "  5 Hrs   ",
+  "160 Mins  ",
+  " 80 Mins  ",
+  " 40 Mins  ",
 };
 
 static uint32_t last_time_stamp  = 0;
@@ -368,24 +374,25 @@ static void update_status(uint16_t pre, uint16_t co2)
 {
   uint8_t k,h,d,u; // kilo,hecto,deca,uni.
 
-  char* p = status_lines[0];
+  char* p = status_lines[1];
   k = (co2/1000);
   h = (co2%1000)/100;
   d = (co2%100)/10;
   u = (co2%10);
-  if (k) *p++ = 48 + k;
+  *p++ = ' '; // char 0
+  *p++ = ' ';
+  *p++ = k ? 48 : ' ';
   *p++ = 48 + h;
   *p++ = 48 + d;
   *p++ = 48 + u;
   *p++ = ' ';
   *p++ = 'p';
   *p++ = 'p';
-  *p++ = 'm';
-  *p++ = ' ';
-  *p++ = 0;
-  status_line_dirty[0] = 0xff;
+  *p++ = 'm'; // char 9
+  *p++ = 0;   // char 10: terminator
+  status_line_dirty[1] = 0xff;
 
-  p = status_lines[1];
+  p = status_lines[0];
 #if 0 // This just confuses people, thinking it is 2 graphs. Ugh!
   k = (pre/1000);
   h = (pre%1000)/100;
@@ -411,7 +418,7 @@ static void update_status(uint16_t pre, uint16_t co2)
   *p++ = ' ';
   *p++ = 0;
 #endif
-  status_line_dirty[1] = 0xff;
+  status_line_dirty[0] = 0xff;
 }
 
 
@@ -453,15 +460,15 @@ void loop()
   {
     curz++; // Zoom in
     memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
-    strcpy(status_lines[1], graphrng[curz]);
-    status_line_dirty[1] = 0xff;
+    strcpy(status_lines[0], graphrng[curz]);
+    status_line_dirty[0] = 0xff;
   }
   if ( delta==-1 && curz > 0 )
   {
     curz--; // Zoom out
     memset(graph_row_dirty, 0xff, sizeof(graph_row_dirty));
-    strcpy(status_lines[1], graphrng[curz]);
-    status_line_dirty[1] = 0xff;
+    strcpy(status_lines[0], graphrng[curz]);
+    status_line_dirty[0] = 0xff;
   }
 
   uint8_t s = knob_switch_value(0);
