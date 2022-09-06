@@ -398,15 +398,16 @@ static void update_status(uint16_t pre, uint16_t co2)
   h = (pre%1000)/100;
   d = (pre%100)/10;
   u = (pre%10);
-  if (k) *p++ = 48 + k;
-  *p++ = 48 + h;
+  if (k) *p++ = 48 + k; // char 0 (optional)
+  *p++ = 48 + h; // char 0 or 1
   *p++ = 48 + d;
   *p++ = 48 + u;
   *p++ = ' ';
   *p++ = 'h';
   *p++ = 'P';
-  *p++ = 'a';
-  *p++ = 0;
+  *p++ = 'a'; // char 6 or 7
+  if (!k) *p++ = ' '; // char 7 (optional)
+  *p++ = 0;  // char 8
 #else
   *p++ = ' ';
   *p++ = ' ';
