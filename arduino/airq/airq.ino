@@ -381,7 +381,7 @@ static void update_status(uint16_t pre, uint16_t co2)
   u = (co2%10);
   *p++ = ' '; // char 0
   *p++ = ' ';
-  *p++ = k ? 48 : ' ';
+  *p++ = k ? 48 + k : ' ';
   *p++ = 48 + h;
   *p++ = 48 + d;
   *p++ = 48 + u;
